@@ -7,7 +7,7 @@
 #                    that measures only the wallbox feed.
 #   Bus 2 (charger): ESP32 poses as the Neurio meter the Wall Connector polls.
 #
-# Aperta sets the mode (Stock, Manual, Pause) and the target current over
+# Aperta sets the mode (Bypass, Manual, Pause) and the target current over
 # MQTT (topics in README.md). The logic lives in teslawbc/control.h and is
 # unit-tested in tests/.
 # =============================================================================
@@ -455,9 +455,9 @@ select:
     id: mode_select
     name: "Mode"
     icon: mdi:ev-plug-type2
-    # Order matters: index 0, 1, 2 = teslawbc::Mode STOCK, MANUAL, PAUSE.
-    options: [Stock, Manual, Pause]
-    initial_option: Stock
+    # Order matters: index 0, 1, 2 = teslawbc::Mode BYPASS, MANUAL, PAUSE.
+    options: [Bypass, Manual, Pause]
+    initial_option: Bypass
     optimistic: true
     restore_value: true
     on_value:

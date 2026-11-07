@@ -42,16 +42,16 @@ R follows the car's current 1:1 and is never below what the wallbox draws. Both 
 
 | Mode | Reported R | Charger behaviour |
 |---|---|---|
-| Stock | max(W) | Charges as if TeslaWBC were not there |
+| Bypass | max(W) | Charges as if TeslaWBC were not there |
 | Manual | max(W) + (L - T) | Holds T, clamped to 6 A up to Max Output Current. Below 6 A it pauses |
 | Pause | max(L, max(W)) + 2 A | Opens the contactor, resumes when the mode changes |
 
 ### Fail-safes
 
-- **Meter fault** (no valid reading for 3 s): report L + 2 A, so charging pauses. This applies in every mode, including Stock.
-- **Aperta silent** (no command or heartbeat for longer than *Fallback Timeout*, default 5 min): Manual and Pause switch to *Fallback Target* (default 6 A; 0 means pause). Stock stays Stock.
+- **Meter fault** (no valid reading for 3 s): report L + 2 A, so charging pauses. This applies in every mode, including Bypass.
+- **Aperta silent** (no command or heartbeat for longer than *Fallback Timeout*, default 5 min): Manual and Pause switch to *Fallback Target* (default 6 A; 0 means pause). Bypass stays Bypass.
 - **ESP32 off or crashed**: the charger falls back to Tesla's built-in 6 A cap.
-- **Stock mode** is the kill switch, without rewiring.
+- **Bypass mode** is the kill switch, without rewiring.
 
 The logic is in [`teslawbc/control.h`](teslawbc/control.h), plain C++ with no ESPHome dependency, and is unit-tested in [`tests/`](tests/).
 
@@ -65,7 +65,7 @@ TeslaWBC talks to the building platform (Aperta) over MQTT. It connects to the b
 
 | Topic | Payload | Notes |
 |---|---|---|
-| `teslawbc/select/mode/command` | `Stock`, `Manual` or `Pause` | Restored after a reboot |
+| `teslawbc/select/mode/command` | `Bypass`, `Manual` or `Pause` | Restored after a reboot |
 | `teslawbc/number/target_current/command` | `0` to `32` (A) | Below 6 pauses. Not restored after a reboot: starts at 6 A until Aperta writes it |
 | `teslawbc/heartbeat` | anything | Keeps the fallback from kicking in when nothing else changes |
 | `teslawbc/number/max_conductor_limit/command` | A | Must match the Tesla app. Default 18 |
@@ -90,7 +90,7 @@ Each control above also reports its value on the same topic ending in `/state`, 
 | `teslawbc/sensor/energy/state` | kWh | Import energy counter of the DRS-100 |
 | `teslawbc/sensor/reported_current/state` | A | What the charger is told (R) |
 | `teslawbc/sensor/effective_target/state` | A | The target in use; `nan` when not regulating |
-| `teslawbc/text_sensor/state/state` | | `Stock`, `Charging`, `Paused`, `Fallback charging`, `Fallback paused`, `Meter fault` |
+| `teslawbc/text_sensor/state/state` | | `Bypass`, `Charging`, `Paused`, `Fallback charging`, `Fallback paused`, `Meter fault` |
 | `teslawbc/binary_sensor/meter_ok/state` | `ON`/`OFF` | |
 | `teslawbc/binary_sensor/charger_polling/state` | `ON`/`OFF` | The Wall Connector is reading the emulated meter |
 | `teslawbc/binary_sensor/fallback_active/state` | `ON`/`OFF` | |
@@ -125,7 +125,7 @@ Run the unit tests with `make -C tests`.
 1. Set the DRS-100 to 9600 baud, 8N1, address 1, and check that *Meter OK* is on and the currents look right.
 2. In the Tesla app (More, "Tesla device settings"), add the energy meter: CT1 to CT3 = conductor, CT4 = none. Lower Max Output Current first, then set **Max Conductor Limit = 18 A**, and **Max Output Current = 16 A**. Enter the same values in TeslaWBC.
 3. Check that *Charger Polling* is on and the poll interval is about 190 ms. If the charger does not poll, swap A and B, then try `charger_baud: "9600"`.
-4. Leave it a day in **Stock** mode, then test Manual at 16, 10 and 6 A, then Pause and resume.
+4. Leave it a day in **Bypass** mode, then test Manual at 16, 10 and 6 A, then Pause and resume.
 5. Block the Wall Connector's internet access at the router to freeze its firmware (tested on 26.34).
 
 ## Credits

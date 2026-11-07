@@ -32,12 +32,12 @@ static Inputs base(float w1, float w2, float w3) {
   return in;
 }
 
-static void test_stock_reports_honest_current() {
+static void test_bypass_reports_honest_current() {
   Settings cfg;
   Inputs in = base(15.2f, 15.9f, 15.4f);
-  in.mode = Mode::STOCK;
+  in.mode = Mode::BYPASS;
   Result r = compute(cfg, in);
-  CHECK(r.state == State::STOCK);
+  CHECK(r.state == State::BYPASS);
   CHECK(near(r.reported, 15.9f));
   CHECK(std::isnan(r.effective_target));
 }
@@ -143,19 +143,19 @@ static void test_meter_timeout_pauses() {
   CHECK(r.state == State::METER_FAULT);
   CHECK(!r.meter_ok);
   CHECK(near(r.reported, 20.0f));
-  // Also in Stock mode.
-  in.mode = Mode::STOCK;
+  // Also in Bypass mode.
+  in.mode = Mode::BYPASS;
   CHECK(compute(cfg, in).state == State::METER_FAULT);
   // Never seen a reading (just booted).
   Inputs fresh;
-  fresh.mode = Mode::STOCK;
+  fresh.mode = Mode::BYPASS;
   CHECK(compute(cfg, fresh).state == State::METER_FAULT);
 }
 
 static void test_meter_nan_is_fault() {
   Settings cfg;
   Inputs in = base(10.0f, NAN, 10.0f);
-  in.mode = Mode::STOCK;
+  in.mode = Mode::BYPASS;
   CHECK(compute(cfg, in).state == State::METER_FAULT);
 }
 
@@ -180,9 +180,9 @@ static void test_fallback_when_controller_silent() {
   // Fallback target 0 means pause.
   cfg.fallback_target = 0.0f;
   CHECK(compute(cfg, in).state == State::FALLBACK_PAUSED);
-  // Stock ignores Aperta entirely.
-  in.mode = Mode::STOCK;
-  CHECK(compute(cfg, in).state == State::STOCK);
+  // Bypass ignores Aperta entirely.
+  in.mode = Mode::BYPASS;
+  CHECK(compute(cfg, in).state == State::BYPASS);
 }
 
 static void test_millis_wraparound() {
@@ -200,7 +200,7 @@ static void test_millis_wraparound() {
 }
 
 int main() {
-  test_stock_reports_honest_current();
+  test_bypass_reports_honest_current();
   test_manual_formula();
   test_reported_follows_car_one_to_one();
   test_reported_never_below_wallbox_current();

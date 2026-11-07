@@ -24,13 +24,13 @@
 namespace teslawbc {
 
 enum class Mode : uint8_t {
-  STOCK = 0,   // report the honest wallbox current: no control at all
+  BYPASS = 0,   // report the honest wallbox current: no control at all
   MANUAL = 1,  // hold the target current T
   PAUSE = 2,   // report more than L: the charger opens its contactor
 };
 
 enum class State : uint8_t {
-  STOCK = 0,
+  BYPASS = 0,
   CHARGING = 1,           // Manual, holding the target
   PAUSED = 2,             // Pause mode, or Manual with a target below the minimum
   FALLBACK_CHARGING = 3,  // Aperta silent: holding the fallback target
@@ -40,7 +40,7 @@ enum class State : uint8_t {
 
 inline const char *state_name(State s) {
   switch (s) {
-    case State::STOCK: return "Stock";
+    case State::BYPASS: return "Bypass";
     case State::CHARGING: return "Charging";
     case State::PAUSED: return "Paused";
     case State::FALLBACK_CHARGING: return "Fallback charging";
@@ -67,7 +67,7 @@ struct Inputs {
   uint32_t last_meter_ms = 0;
   float current[3] = {NAN, NAN, NAN};
   // Aperta: requested mode and target, and when it last sent a command or heartbeat.
-  Mode mode = Mode::STOCK;
+  Mode mode = Mode::BYPASS;
   float target = 6.0f;
   uint32_t last_cmd_ms = 0;
 };
@@ -112,9 +112,9 @@ inline Result compute(const Settings &cfg, const Inputs &in) {
   }
   r.max_current = w_max;
 
-  // Stock is the kill switch: honest current, independent of Aperta.
-  if (in.mode == Mode::STOCK) {
-    r.state = State::STOCK;
+  // Bypass is the kill switch: honest current, independent of Aperta.
+  if (in.mode == Mode::BYPASS) {
+    r.state = State::BYPASS;
     r.reported = w_max;
     return r;
   }

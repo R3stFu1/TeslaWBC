@@ -143,9 +143,7 @@ globals:
   - id: poll_interval_ms
     type: float
     initial_value: "NAN"
-  # Control Lost detector (teslawbc::ControlWatch)
-  - id: control_watch
-    type: teslawbc::ControlWatch
+  # Control Lost alarm
   - id: ctl_lost
     type: bool
     initial_value: "false"
@@ -194,7 +192,9 @@ script:
           id(effective_target_a) = r.effective_target;
           id(ctl_meter_ok) = r.meter_ok;
           id(ctl_fallback) = r.fallback;
-          bool lost = id(control_watch).update(teslawbc::WatchSettings{}, in.now_ms, r);
+          // Lives here, not in globals: globals are declared before includes.
+          static teslawbc::ControlWatch control_watch;
+          bool lost = control_watch.update(teslawbc::WatchSettings{}, in.now_ms, r);
           if (lost != id(ctl_lost)) {
             id(ctl_lost) = lost;
             if (lost) {

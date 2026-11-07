@@ -56,53 +56,78 @@ R follows the car's current 1:1 and is never below what the wallbox draws. Both 
 
 ### Wall Connector status
 
-TeslaWBC also reads the Wall Connector's local API (`/api/1/vitals`) every 10 s and passes on vehicle connected, contactor closed, vehicle current, session energy, session time and EVSE state. This is for information only and never used for control. Set the address in the `twc_vitals_url` substitution and give the Wall Connector a fixed IP in your router. If it is unreachable, *WC Reachable* goes off and control carries on unaffected.
+TeslaWBC also reads the Wall Connector's local API (`/api/1/vitals`) every 10 s and passes on vehicle connected, contactor closed, vehicle current, session energy, session time and EVSE state. This is for information only and never used for control. Set its address on the web page (Settings or setup wizard) and give the Wall Connector a fixed IP in your router. If it is unreachable, *WC Reachable* goes off and control carries on unaffected.
 
 The logic is in [`teslawbc/control.h`](teslawbc/control.h), plain C++ with no ESPHome dependency, and is unit-tested in [`tests/`](tests/).
 
-## Interface to Aperta: MQTT and REST
+## Web page and setup wizard
 
-TeslaWBC offers the same functions over two interfaces, and Aperta can use either or both.
+TeslaWBC gets its network address by DHCP. Open `http://<ip>/` in a browser (reserve the address in your router so it stays the same). The page has three tabs:
 
-- **MQTT:** connects to the broker in `secrets.yaml` with the topic prefix `teslawbc`. TeslaWBC publishes every change as it happens, retained. Aperta sends commands to `…/command` topics. Payloads are plain text.
-- **REST:** HTTP on port 80 of the ESP32, protected with digest authentication (login in `secrets.yaml`). URLs use the entity name, URL-encoded (`%20` for a space). `GET` returns JSON such as `{"id":"sensor/Current L1","value":15.92,"state":"15.92 A"}`. `POST` returns 200 on success. A browser on `http://<ip>/` shows a status page with all values and controls.
+- **Status:** mode buttons, target current, health flags and all live values.
+- **Settings:** the charging limits and fallback, the MQTT broker and login, the Wall Connector address, the device password, restart and factory reset.
+- **Setup wizard:** opens by itself on a new device and walks through commissioning: device password, network, MQTT, Tesla limits, meter check, Wall Connector bus check, Wall Connector API, fallback, and a test run with live currents.
 
-| Function | MQTT | REST |
+**Device password:** protects the page and the REST API (HTTP Basic, any user name). It is stored as a salted SHA-256 hash. HTTP is not encrypted, so keep TeslaWBC in your own network and never expose it to the internet. Until the wizard is finished the device is open and stays in **Bypass**, so it does not steer anything before it is set up.
+
+**Factory reset:** *Settings → Factory reset*, or hold the board's user button (BUT1) for 10 seconds. It clears the device password, the MQTT and Wall Connector settings and reopens the wizard. Charging limits and mode are kept.
+
+## Interface to Aperta: REST and MQTT
+
+Both interfaces offer the same functions; Aperta can use either or both.
+
+**REST** lives under `/api/` on port 80. Requests and responses are JSON (send `Content-Type: application/json` with every POST). Authentication is HTTP Basic with the device password.
+
+| Method and path | Body | Purpose |
 |---|---|---|
-| **Set mode** | publish `Bypass`, `Manual` or `Pause` to `teslawbc/select/mode/command` | `POST /select/Mode/set?option=Manual` |
-| **Set target current** (0 to 32 A; below Min Current pauses) | publish `10` to `teslawbc/number/target_current/command` | `POST /number/Target%20Current/set?value=10` |
-| **Heartbeat** (keeps the fallback away) | publish `PRESS` to `teslawbc/button/heartbeat/command` | `POST /button/Heartbeat/press` |
-| Read mode and target | `teslawbc/select/mode/state`, `teslawbc/number/target_current/state` | `GET /select/Mode`, `GET /number/Target%20Current` |
-| **Controller state** (`Bypass`, `Charging`, `Paused`, `Fallback charging`, `Fallback paused`, `Meter fault`) | `teslawbc/text_sensor/state/state` | `GET /text_sensor/State` |
-| Current per phase (A, 5 s average) | `teslawbc/sensor/current_l1/state` (`_l2`, `_l3`) | `GET /sensor/Current%20L1` (`L2`, `L3`) |
-| Voltage per phase (V, 10 s average) | `teslawbc/sensor/voltage_l1/state` (`_l2`, `_l3`) | `GET /sensor/Voltage%20L1` (`L2`, `L3`) |
-| Power per phase (W, 5 s average) | `teslawbc/sensor/power_l1/state` (`_l2`, `_l3`) | `GET /sensor/Power%20L1` (`L2`, `L3`) |
-| Total power (W), frequency (Hz) | `teslawbc/sensor/power/state`, `teslawbc/sensor/frequency/state` | `GET /sensor/Power`, `GET /sensor/Frequency` |
-| Energy counter (kWh) | `teslawbc/sensor/energy/state` | `GET /sensor/Energy` |
-| Current reported to the charger (R) | `teslawbc/sensor/reported_current/state` | `GET /sensor/Reported%20Current` |
-| Target in use (A, `nan` when not regulating) | `teslawbc/sensor/effective_target/state` | `GET /sensor/Effective%20Target` |
-| Health flags (`ON`/`OFF`) | `teslawbc/binary_sensor/meter_ok/state`, `…/charger_polling/state`, `…/fallback_active/state` | `GET /binary_sensor/Meter%20OK`, `/binary_sensor/Charger%20Polling`, `/binary_sensor/Fallback%20Active` |
-| **Control Lost** (`ON` when the charger stops following TeslaWBC, see below) | `teslawbc/binary_sensor/control_lost/state` | `GET /binary_sensor/Control%20Lost` |
-| Wall Connector: vehicle connected, contactor closed, reachable (`ON`/`OFF`) | `teslawbc/binary_sensor/wc_vehicle_connected/state`, `…/wc_contactor_closed/state`, `…/wc_reachable/state` | `GET /binary_sensor/WC%20Vehicle%20Connected`, `/binary_sensor/WC%20Contactor%20Closed`, `/binary_sensor/WC%20Reachable` |
-| Wall Connector: vehicle current (A), session energy (kWh), session time (s), EVSE state | `teslawbc/sensor/wc_vehicle_current/state`, `…/wc_session_energy/state`, `…/wc_session_time/state`, `…/wc_evse_state/state` | `GET /sensor/WC%20Vehicle%20Current`, `/sensor/WC%20Session%20Energy`, `/sensor/WC%20Session%20Time`, `/sensor/WC%20EVSE%20State` |
-| Charger poll interval (ms, about 190) | `teslawbc/sensor/charger_poll_interval/state` | `GET /sensor/Charger%20Poll%20Interval` |
-| **Device online?** | `teslawbc/status` = `online`, or `offline` via the broker's last will | no answer to a request (Aperta polls) |
-| **Live updates** | subscribe to `teslawbc/#` | `GET /events` (Server-Sent Events stream) |
-| Settings: Max Conductor Limit, Max Output Current, Min Current, Fallback Target, Fallback Timeout | `teslawbc/number/max_conductor_limit/command` (and `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`), values on `…/state` | `POST /number/Max%20Conductor%20Limit/set?value=18` (and the others), read with `GET` |
-| Restart the ESP32 | publish `PRESS` to `teslawbc/button/restart/command` | `POST /button/Restart/press` |
-| Diagnostics: uptime, firmware, IP address | `teslawbc/sensor/uptime/state`, `teslawbc/text_sensor/firmware/state`, `teslawbc/text_sensor/ip_address/state` | `GET /sensor/Uptime`, `/text_sensor/Firmware`, `/text_sensor/IP%20Address` |
+| `GET /api/status` | | Mode, target, and every live value in one object (see below) |
+| `POST /api/control` | `{"mode":"Manual","target":10}` (either key optional) | Set mode and/or target. Every call also counts as heartbeat |
+| `POST /api/heartbeat` | `{}` | Sign of life only |
+| `GET /api/settings` | | Charging settings with ranges, MQTT broker and user, Wall Connector address |
+| `POST /api/settings` | e.g. `{"max_conductor_limit":18,"mqtt_host":"192.168.1.10"}` | Change any subset. Keys: `max_conductor_limit`, `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`, `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password`, `wc_host` |
+| `POST /api/password` | `{"password":"…"}` | Change the device password (8 to 64 characters) |
+| `POST /api/setup/complete` | `{}` | Finish setup (needs a password); from then on the password is required |
+| `POST /api/restart` | `{}` | Reboot |
+| `POST /api/factory-reset` | `{}` | Same as the button reset |
 
-**Fallback:** Aperta must set the mode or target, or press Heartbeat, at least once per Fallback Timeout (default 5 min), over either interface. Writing the target every minute is enough. If nothing arrives, Manual and Pause switch to the Fallback Target. This also catches a stalled automation, not only a lost connection.
+Example `GET /api/status`:
+
+```json
+{"name":"teslawbc","firmware":"0.1.0","uptime_s":4211,"setup_done":true,
+ "mode":"Manual","target":10,"mqtt_connected":true,
+ "values":{"state":"Charging","effective_target":10,"reported_current":18.1,
+   "current_l1":9.9,"current_l2":10.1,"current_l3":9.8,"voltage_l1":231.2,"voltage_l2":229.8,"voltage_l3":230.5,
+   "power_l1":2290,"power_l2":2321,"power_l3":2259,"power":6870,"frequency":50.01,"energy":1234.56,
+   "meter_ok":true,"charger_polling":true,"charger_poll_interval":191,"fallback_active":false,"control_lost":false,
+   "wc_reachable":true,"wc_vehicle_connected":true,"wc_contactor_closed":true,"wc_vehicle_current":10.0,
+   "wc_session_energy":3.2,"wc_session_time":1460,"wc_evse_state":11,
+   "uptime":4211,"firmware":"2026.10.2","ip_address":"192.168.1.57"}}
+```
+
+Values that are not known yet are `null`.
+
+**MQTT** connects to the broker set on the web page, with the topic prefix `teslawbc`. TeslaWBC publishes every change, retained; Aperta sends commands to `…/command` topics. Payloads are plain text.
+
+| Function | MQTT topic |
+|---|---|
+| Set mode | `teslawbc/select/mode/command` ← `Bypass`, `Manual` or `Pause` |
+| Set target current | `teslawbc/number/target_current/command` ← `10` |
+| Heartbeat | `teslawbc/button/heartbeat/command` ← `PRESS` |
+| Settings | `teslawbc/number/max_conductor_limit/command` (also `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`) |
+| Restart | `teslawbc/button/restart/command` ← `PRESS` |
+| All values | `teslawbc/<type>/<name>/state`, with the names of the `values` keys above, e.g. `teslawbc/sensor/current_l1/state`, `teslawbc/binary_sensor/control_lost/state` (`ON`/`OFF`), `teslawbc/text_sensor/state/state` |
+| Online | `teslawbc/status` = `online`, or `offline` via the broker's last will |
+
+**Fallback:** Aperta must set the mode or target, or send a heartbeat, at least once per Fallback Timeout (default 5 min), over either interface. Writing the target every minute is enough. If nothing arrives, Manual and Pause switch to the Fallback Target. This also catches a stalled automation, not only a lost connection.
 
 Mode is restored after a reboot. Target Current is not, to spare the flash: it starts at 6 A until Aperta writes it.
 
 Quick test from a PC:
 
 ```sh
+curl -u x:<password> http://<ip>/api/status
+curl -u x:<password> -H 'Content-Type: application/json' -d '{"mode":"Manual","target":10}' http://<ip>/api/control
 mosquitto_sub -h <broker> -t 'teslawbc/#' -v
-mosquitto_pub -h <broker> -t teslawbc/number/target_current/command -m 10
-curl --digest -u teslawbc:<password> http://<ip>/sensor/Current%20L1
-curl --digest -u teslawbc:<password> -X POST 'http://<ip>/select/Mode/set?option=Manual'
 ```
 
 ## Example: charging in the cheap hours
@@ -127,15 +152,20 @@ The car's own charging schedule should be off, so the car charges whenever the W
 Requires ESPHome 2026.10 or newer.
 
 ```sh
-cp secrets.yaml.example secrets.yaml   # then set the broker, login and a fresh OTA key
+cp secrets.yaml.example secrets.yaml   # then put in a fresh OTA key: openssl rand -base64 32
 esphome run teslawbc.yaml              # first flash over micro-USB, later over the network
 ```
 
 Flash over USB only while the board is **not** powered by PoE, or use a USB isolator.
 
+Then open `http://<ip>/`: the setup wizard takes you through the rest.
+
 Run the unit tests with `make -C tests`.
 
 ## Commissioning
+
+The setup wizard covers steps 1 to 4. For reference:
+
 
 1. Set the DRS-100 to 9600 baud, 8N1, address 1, and check that *Meter OK* is on and the currents look right.
 2. In the Tesla app (More, "Tesla device settings"), add the energy meter: CT1 to CT3 = conductor, CT4 = none. Lower Max Output Current first, then set **Max Conductor Limit = 18 A**, and **Max Output Current = 16 A**. Enter the same values in TeslaWBC.

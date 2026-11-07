@@ -29,10 +29,6 @@ substitutions:
   # never polls, try 9600 (see README, commissioning).
   charger_baud: "115200"
 
-  # Wall Connector's local API, read for status only (never used for control).
-  # Give the Wall Connector a fixed IP address in your router.
-  twc_vitals_url: "http://192.168.1.20/api/1/vitals"
-
   # Fixed safety parameters
   pause_margin_a: "2.0"     # pause = report L + this
   meter_timeout_ms: "3000"  # no valid meter reading for this long = meter fault
@@ -69,31 +65,72 @@ ethernet:
 logger:
   level: INFO
 
+# The network address comes from DHCP. Reserve it in your router.
+
 # Interface to Aperta. Every entity below gets a state topic
 # <prefix>/<type>/<name>/state; controls also get <prefix>/<type>/<name>/command.
+# Broker, port and login are set on the web page (setup wizard) and stored on
+# the device; the values here are placeholders until then.
 mqtt:
-  broker: !secret mqtt_broker
-  port: 1883
-  username: !secret mqtt_username
-  password: !secret mqtt_password
+  broker: "0.0.0.0"
+  enable_on_boot: false       # teslawbc_web enables it once a broker is set
   topic_prefix: ${device_name}
   discovery: false            # no Home Assistant discovery messages
   # <prefix>/status is "online" while connected, "offline" (last will) when not.
   # Never reboot because the broker is away: the fallback target handles that.
   reboot_timeout: 0s
 
-# Second interface to Aperta: REST and a status page on http://<ip>/
-# GET /<type>/<Entity Name> reads, POST /<type>/<Entity Name>/<action> writes,
-# GET /events streams every change (Server-Sent Events). See README.md.
-web_server:
-  port: 80
-  version: 3
-  local: true    # serve the page from the ESP32, no internet needed
-  ota: false     # firmware updates only through the encrypted ESPHome OTA
-  auth:
-    type: digest   # switch to basic if Aperta cannot do digest
-    username: !secret web_username
-    password: !secret web_password
+# Web page (Status, Settings, Setup wizard) on http://<ip>/ and the REST API
+# under /api/, protected by the device password. See README.md.
+external_components:
+  - source:
+      type: local
+      path: components
+
+teslawbc_web:
+  id: web
+  mode: mode_select
+  target: target_current
+  heartbeat: heartbeat_button
+  settings:
+    - conductor_limit
+    - max_output_current
+    - min_current
+    - fallback_target
+    - fallback_timeout
+  sensors:
+    - meter_v1
+    - meter_v2
+    - meter_v3
+    - meter_i1
+    - meter_i2
+    - meter_i3
+    - meter_p1
+    - meter_p2
+    - meter_p3
+    - meter_total_power
+    - meter_frequency
+    - meter_import_energy
+    - reported_current_sensor
+    - effective_target_sensor
+    - poll_interval_sensor
+    - uptime_sensor
+    - twc_vehicle_current
+    - twc_session_energy
+    - twc_session_time
+    - twc_evse_state
+  binary_sensors:
+    - meter_ok_sensor
+    - charger_polling_sensor
+    - fallback_active_sensor
+    - control_lost_sensor
+    - twc_vehicle_connected
+    - twc_contactor_closed
+    - twc_reachable_sensor
+  text_sensors:
+    - state_text
+    - firmware_text
+    - ip_address_text
 
 ota:
   - platform: esphome
@@ -176,6 +213,8 @@ script:
           in.current[2] = id(meter_i3).get_raw_state();
           auto idx = id(mode_select).active_index();
           in.mode = static_cast<teslawbc::Mode>(idx.has_value() ? idx.value() : 0);
+          // Until the setup wizard is finished, TeslaWBC does not steer.
+          if (!id(web).setup_done()) in.mode = teslawbc::Mode::BYPASS;
           in.target = id(target_current).state;
           in.last_cmd_ms = id(last_cmd_ms);
 
@@ -215,27 +254,31 @@ interval:
   - interval: 250ms
     then:
       - script.execute: recompute
-  # Wall Connector vitals, for status only
+  # Wall Connector vitals, for status only. Address set on the web page.
   - interval: 10s
     then:
-      - http_request.get:
-          url: ${twc_vitals_url}
-          capture_response: true
-          max_response_buffer_size: 2kB
-          on_response:
-            then:
-              - lambda: |-
-                  if (response->status_code != 200) return;
-                  json::parse_json(body, [](JsonObject root) -> bool {
-                    id(last_vitals_ms) = millis();
-                    id(twc_vehicle_connected).publish_state(root["vehicle_connected"] | false);
-                    id(twc_contactor_closed).publish_state(root["contactor_closed"] | false);
-                    id(twc_vehicle_current).publish_state(root["vehicle_current_a"] | NAN);
-                    id(twc_session_energy).publish_state((root["session_energy_wh"] | NAN) / 1000.0f);
-                    id(twc_session_time).publish_state(root["session_s"] | NAN);
-                    id(twc_evse_state).publish_state(root["evse_state"] | NAN);
-                    return true;
-                  });
+      - if:
+          condition:
+            lambda: return !id(web).wc_host().empty();
+          then:
+            - http_request.get:
+                url: !lambda return "http://" + id(web).wc_host() + "/api/1/vitals";
+                capture_response: true
+                max_response_buffer_size: 2kB
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (response->status_code != 200) return;
+                        json::parse_json(body, [](JsonObject root) -> bool {
+                          id(last_vitals_ms) = millis();
+                          id(twc_vehicle_connected).publish_state(root["vehicle_connected"] | false);
+                          id(twc_contactor_closed).publish_state(root["contactor_closed"] | false);
+                          id(twc_vehicle_current).publish_state(root["vehicle_current_a"] | NAN);
+                          id(twc_session_energy).publish_state((root["session_energy_wh"] | NAN) / 1000.0f);
+                          id(twc_session_time).publish_state(root["session_s"] | NAN);
+                          id(twc_evse_state).publish_state(root["evse_state"] | NAN);
+                          return true;
+                        });
 
 http_request:
   timeout: 3s
@@ -439,6 +482,7 @@ sensor:
 
   # --- Controller ---
   - platform: template
+    id: reported_current_sensor
     name: "Reported Current"
     icon: mdi:current-ac
     unit_of_measurement: A
@@ -448,6 +492,7 @@ sensor:
     update_interval: 5s
     lambda: return id(reported_a);
   - platform: template
+    id: effective_target_sensor
     name: "Effective Target"
     icon: mdi:target
     unit_of_measurement: A
@@ -457,6 +502,7 @@ sensor:
     update_interval: 5s
     lambda: return id(effective_target_a);
   - platform: template
+    id: poll_interval_sensor
     name: "Charger Poll Interval"
     icon: mdi:timer-outline
     unit_of_measurement: ms
@@ -466,6 +512,7 @@ sensor:
     update_interval: 10s
     lambda: return id(poll_interval_ms);
   - platform: uptime
+    id: uptime_sensor
     name: "Uptime"
     entity_category: diagnostic
 
@@ -504,23 +551,27 @@ sensor:
 
 binary_sensor:
   - platform: template
+    id: meter_ok_sensor
     name: "Meter OK"
     device_class: connectivity
     entity_category: diagnostic
     lambda: return id(ctl_meter_ok);
   - platform: template
+    id: charger_polling_sensor
     name: "Charger Polling"
     device_class: connectivity
     entity_category: diagnostic
     lambda: |-
       return id(last_poll_ms) != 0 && (millis() - id(last_poll_ms)) < 2000;
   - platform: template
+    id: fallback_active_sensor
     name: "Fallback Active"
     device_class: problem
     lambda: return id(ctl_fallback);
   # The charger is not following TeslaWBC: the car draws clearly more than
   # the target, or keeps charging in a pause, for 3 minutes.
   - platform: template
+    id: control_lost_sensor
     name: "Control Lost"
     device_class: problem
     lambda: return id(ctl_lost);
@@ -533,6 +584,7 @@ binary_sensor:
     name: "WC Contactor Closed"
     device_class: power
   - platform: template
+    id: twc_reachable_sensor
     name: "WC Reachable"
     device_class: connectivity
     entity_category: diagnostic
@@ -540,6 +592,19 @@ binary_sensor:
       return id(last_vitals_ms) != 0 && (millis() - id(last_vitals_ms)) < 30000;
   - platform: status
     name: "Status"
+  # Factory reset: hold the board's user button (BUT1) for 10 seconds.
+  - platform: gpio
+    id: user_button
+    pin:
+      number: GPIO34
+      inverted: true
+    internal: true
+    filters:
+      - delayed_on: 10s
+    on_press:
+      - lambda: id(web).factory_reset();
+      - delay: 1s
+      - lambda: App.safe_reboot();
 
 text_sensor:
   - platform: template
@@ -548,10 +613,12 @@ text_sensor:
     icon: mdi:ev-station
     update_interval: never
   - platform: version
+    id: firmware_text
     name: "Firmware"
     entity_category: diagnostic
   - platform: ethernet_info
     ip_address:
+      id: ip_address_text
       name: "IP Address"
       entity_category: diagnostic
 
@@ -670,6 +737,7 @@ button:
   # Aperta presses this (or writes Mode or Target Current) at least once per
   # Fallback Timeout to show it is alive.
   - platform: template
+    id: heartbeat_button
     name: "Heartbeat"
     icon: mdi:heart-pulse
     on_press:

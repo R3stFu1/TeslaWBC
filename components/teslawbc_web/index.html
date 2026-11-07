@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TeslaWBC</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1d2330;--muted:#667085;--line:#e3e6eb;--accent:#c8102e;--ok:#1a7f37;--warn:#b54708;--bad:#b42318}
+@media (prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1d2128;--fg:#e8eaed;--muted:#9aa1ac;--line:#2e333c;--accent:#ff4d5e;--ok:#3fb950;--warn:#e3a008;--bad:#f85149}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+header{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card)}
+header h1{font-size:18px;margin:0}header .sub{color:var(--muted);font-size:13px}
+nav{display:flex;gap:4px;padding:8px 16px;background:var(--card);border-bottom:1px solid var(--line)}
+nav button{background:none;border:0;padding:8px 12px;border-radius:8px;color:var(--muted);font:inherit;cursor:pointer}
+nav button.on{background:var(--bg);color:var(--fg);font-weight:600}
+main{max-width:860px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h2{font-size:15px;margin:0 0 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.kv{border:1px solid var(--line);border-radius:10px;padding:8px 10px}.kv .k{color:var(--muted);font-size:12px}.kv .v{font-size:18px;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);width:100%;max-width:320px}
+button.b{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
+button.p{background:var(--accent);border-color:var(--accent);color:#fff}button.sel{outline:2px solid var(--accent)}
+.badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600;border:1px solid currentColor}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.muted{color:var(--muted)}
+.steps{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap}.steps span{flex:1;min-width:24px;height:4px;border-radius:2px;background:var(--line)}.steps span.done{background:var(--accent)}
+.msg{margin-top:8px;font-size:13px}.hide{display:none}
+table{border-collapse:collapse;width:100%}td{padding:6px 4px;border-bottom:1px solid var(--line)}td:last-child{text-align:right}
+</style>
+</head>
+<body>
+<header><div><h1>TeslaWBC</h1><div class="sub" id="hdr">connecting…</div></div></header>
+<nav><button data-tab="status" class="on">Status</button><button data-tab="settings">Settings</button><button data-tab="setup">Setup wizard</button></nav>
+<main>
+<section id="tab-status">
+  <div class="card"><h2>Control</h2>
+    <div class="row" id="modes"></div>
+    <label for="tgt">Target current (A)</label>
+    <div class="row"><input id="tgt" type="number" min="0" max="32" step="1" style="max-width:120px"><button class="b p" id="tgtset">Set</button></div>
+    <div class="msg" id="ctlmsg"></div>
+  </div>
+  <div class="card"><h2>Health</h2><div class="row" id="health"></div></div>
+  <div class="card"><h2>Live values</h2><div class="grid" id="live"></div></div>
+  <div class="card"><h2>Wall Connector</h2><div class="grid" id="wc"></div></div>
+</section>
+
+<section id="tab-settings" class="hide">
+  <div class="card"><h2>Charging</h2><div id="nums"></div><div class="row" style="margin-top:12px"><button class="b p" id="numsave">Save</button></div><div class="msg" id="nummsg"></div></div>
+  <div class="card"><h2>Connections</h2>
+    <label>MQTT broker (host or IP, empty = MQTT off)</label><input id="s_mqtt_host">
+    <label>MQTT port</label><input id="s_mqtt_port" type="number" min="1" max="65535" style="max-width:120px">
+    <label>MQTT user</label><input id="s_mqtt_user" autocomplete="off">
+    <label>MQTT password (leave empty to keep)</label><input id="s_mqtt_password" type="password" autocomplete="new-password">
+    <label>Wall Connector address (host or IP, empty = off)</label><input id="s_wc_host">
+    <div class="row" style="margin-top:12px"><button class="b p" id="consave">Save</button></div><div class="msg" id="conmsg"></div>
+  </div>
+  <div class="card"><h2>Device password</h2>
+    <label>New password (8 to 64 characters)</label><input id="pw1" type="password" autocomplete="new-password">
+    <label>Repeat</label><input id="pw2" type="password" autocomplete="new-password">
+    <div class="row" style="margin-top:12px"><button class="b p" id="pwsave">Change password</button></div><div class="msg" id="pwmsg"></div>
+  </div>
+  <div class="card"><h2>Device</h2><div class="row"><button class="b" id="restart">Restart</button><button class="b" id="reset">Factory reset</button></div>
+    <p class="muted">Factory reset clears the device password and the connection settings and restarts the setup wizard. You can also hold the board's user button for 10 seconds.</p></div>
+</section>
+
+<section id="tab-setup" class="hide"><div class="card"><div class="steps" id="bar"></div><div id="wiz"></div></div></section>
+</main>
+<script>
+const $=s=>document.querySelector(s),el=(t,a={},...c)=>{const e=document.createElement(t);for(const k in a)k=='class'?e.className=a[k]:k.startsWith('on')?e[k]=a[k]:e.setAttribute(k,a[k]);for(const x of c)e.append(x);return e};
+let S={values:{}},C=null;
+async function api(path,body){const r=await fetch('/api/'+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j}
+const fmt=(v,u,d=1)=>v===null||v===undefined?'–':(typeof v=='number'?v.toFixed(d):v)+(u?' '+u:'');
+const V=k=>S.values[k];
+const badge=(on,label,good=true)=>el('span',{class:'badge '+(on===null||on===undefined?'muted':(on===good?'ok':'bad'))},label);
+function msg(id,text,cls){const m=$(id);m.textContent=text;m.className='msg '+(cls||'')}
+
+// ---- tabs
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.tab));
+function show(t){document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab==t));['status','settings','setup'].forEach(x=>$('#tab-'+x).classList.toggle('hide',x!=t));if(t=='settings')loadSettings();if(t=='setup')wizard()}
+
+// ---- status
+async function poll(){try{S=await api('status');render()}catch(e){$('#hdr').textContent='offline: '+e.message}}
+function render(){
+  $('#hdr').textContent=`${V('state')||'–'} · ${S.mode} · firmware ${S.firmware} · ${V('ip_address')||''}`;
+  const m=$('#modes');m.replaceChildren(...['Bypass','Manual','Pause'].map(x=>el('button',{class:'b'+(S.mode==x?' sel':''),onclick:()=>control({mode:x})},x)));
+  if(document.activeElement!==$('#tgt'))$('#tgt').value=S.target;
+  $('#health').replaceChildren(badge(V('meter_ok'),'Meter'),badge(V('charger_polling'),'Charger polling'),badge(V('fallback_active'),'Fallback',false),badge(V('control_lost'),'Control lost',false),badge(S.mqtt_connected,'MQTT'),badge(V('wc_reachable'),'Wall Connector API'));
+  const kv=(k,v)=>el('div',{class:'kv'},el('div',{class:'k'},k),el('div',{class:'v'},v));
+  $('#live').replaceChildren(kv('State',V('state')||'–'),kv('Target in use',fmt(V('effective_target'),'A')),kv('Reported to charger',fmt(V('reported_current'),'A',2)),
+    kv('Current L1',fmt(V('current_l1'),'A',2)),kv('Current L2',fmt(V('current_l2'),'A',2)),kv('Current L3',fmt(V('current_l3'),'A',2)),
+    kv('Voltage L1',fmt(V('voltage_l1'),'V')),kv('Voltage L2',fmt(V('voltage_l2'),'V')),kv('Voltage L3',fmt(V('voltage_l3'),'V')),
+    kv('Power',fmt(V('power'),'W',0)),kv('Energy',fmt(V('energy'),'kWh',2)),kv('Charger poll',fmt(V('charger_poll_interval'),'ms',0)));
+  $('#wc').replaceChildren(kv('Vehicle connected',V('wc_vehicle_connected')==null?'–':V('wc_vehicle_connected')?'yes':'no'),kv('Contactor',V('wc_contactor_closed')==null?'–':V('wc_contactor_closed')?'closed':'open'),
+    kv('Vehicle current',fmt(V('wc_vehicle_current'),'A')),kv('Session energy',fmt(V('wc_session_energy'),'kWh',2)));
+  if(!$('#tab-setup').classList.contains('hide'))wizCheck();
+}
+async function control(b){try{await api('control',b);msg('#ctlmsg','Sent.','ok');setTimeout(poll,400)}catch(e){msg('#ctlmsg',e.message,'bad')}}
+$('#tgtset').onclick=()=>control({target:+$('#tgt').value});
+
+// ---- settings
+async function loadSettings(){C=await api('settings');
+  $('#nums').replaceChildren(...Object.entries(C.numbers).map(([id,n])=>el('div',{},el('label',{for:'n_'+id},`${n.name} (${n.min} to ${n.max} ${n.unit})`),el('input',{id:'n_'+id,type:'number',min:n.min,max:n.max,step:n.step,value:n.value,style:'max-width:140px'}))));
+  for(const k of['mqtt_host','mqtt_port','mqtt_user','wc_host'])$('#s_'+k).value=C[k]??'';$('#s_mqtt_password').value='';}
+function numBody(ids){const b={};for(const id of ids||Object.keys(C.numbers)){const i=$('#n_'+id)||$('#w_'+id);if(i)b[id]=+i.value}return b}
+$('#numsave').onclick=async()=>{try{await api('settings',numBody());msg('#nummsg','Saved.','ok')}catch(e){msg('#nummsg',e.message,'bad')}};
+function conBody(p=''){const b={mqtt_host:$('#'+p+'mqtt_host').value.trim(),mqtt_port:+$('#'+p+'mqtt_port').value||1883,mqtt_user:$('#'+p+'mqtt_user').value.trim()};const pw=$('#'+p+'mqtt_password').value;if(pw)b.mqtt_password=pw;return b}
+$('#consave').onclick=async()=>{try{await api('settings',{...conBody('s_'),wc_host:$('#s_wc_host').value.trim()});msg('#conmsg','Saved. MQTT reconnects with the new settings.','ok')}catch(e){msg('#conmsg',e.message,'bad')}};
+$('#pwsave').onclick=async()=>{if($('#pw1').value!==$('#pw2').value)return msg('#pwmsg','The two passwords differ.','bad');try{await api('password',{password:$('#pw1').value});msg('#pwmsg','Changed. Your browser will ask for the new password.','ok')}catch(e){msg('#pwmsg',e.message,'bad')}};
+$('#restart').onclick=async()=>{if(confirm('Restart TeslaWBC?')){await api('restart',{});msg('#conmsg','Restarting…')}};
+$('#reset').onclick=async()=>{if(confirm('Clear the device password and connection settings?')){await api('factory-reset',{});location.reload()}};
+
+// ---- setup wizard
+const steps=[
+ {t:'Device password',d:'Choose the password that protects this page and the REST API. Use any user name when the browser asks.',f:()=>[pwFields()],save:async()=>{if($('#wp1').value!==$('#wp2').value)throw new Error('The two passwords differ.');await api('password',{password:$('#wp1').value})},skip:()=>C&&C.password_set},
+ {t:'Network',d:'TeslaWBC got its address from your router (DHCP). Reserve this address for it in the router so it never changes.',f:()=>[el('p',{},'IP address: ',el('b',{id:'wip'},V('ip_address')||'–'))],ok:()=>!!V('ip_address')},
+ {t:'MQTT',d:'Enter your Mosquitto broker. Leave the broker empty to use only the REST API.',f:()=>[inp('w_mqtt_host','Broker (host or IP)',C.mqtt_host),inp('w_mqtt_port','Port',C.mqtt_port,'number'),inp('w_mqtt_user','User',C.mqtt_user),inp('w_mqtt_password','Password (leave empty to keep)','','password'),el('p',{id:'wchk'})],save:async()=>api('settings',conBody('w_')),check:()=>!$('#w_mqtt_host').value.trim()?['MQTT off','muted']:S.mqtt_connected?['Connected to the broker','ok']:['Not connected yet… check address and login','warn']},
+ {t:'Tesla limits',d:'Enter the same values as in the Tesla app (More, "Tesla device settings"): Max Conductor Limit and Max Output Current. Min Current is the lowest target that still charges; keep 6 A unless you have tested 5 A.',f:()=>numFields(['max_conductor_limit','max_output_current','min_current']),save:()=>api('settings',numBody(['max_conductor_limit','max_output_current','min_current']))},
+ {t:'Meter',d:'TeslaWBC reads the DRS-100 (9600 baud, 8N1, address 1). The voltages should be about 230 V on all three phases.',f:()=>[el('p',{id:'wchk'})],check:()=>V('meter_ok')?[`Meter OK · ${fmt(V('voltage_l1'),'V')} / ${fmt(V('voltage_l2'),'V')} / ${fmt(V('voltage_l3'),'V')} · ${fmt(V('current_l1'),'A',2)} / ${fmt(V('current_l2'),'A',2)} / ${fmt(V('current_l3'),'A',2)}`,'ok']:['No answer from the meter. Check A/B wiring, baud rate and address, or swap TX and RX at the module.','bad']},
+ {t:'Wall Connector bus',d:'In the Tesla app add the energy meter (CT1 to CT3 = conductor, CT4 = none). The Wall Connector then polls TeslaWBC about every 190 ms.',f:()=>[el('p',{id:'wchk'})],check:()=>V('charger_polling')?[`Charger polling every ${fmt(V('charger_poll_interval'),'ms',0)}`,'ok']:['No polls yet. Check that the meter is added in the Tesla app, swap A and B, or try 9600 baud.','bad']},
+ {t:'Wall Connector API',d:'Optional: the Wall Connector\'s address in your network, to show whether a car is connected. Give it a fixed address in the router. Leave empty to skip.',f:()=>[inp('w_wc_host','Wall Connector address',C.wc_host),el('p',{id:'wchk'})],save:()=>api('settings',{wc_host:$('#w_wc_host').value.trim()}),check:()=>!$('#w_wc_host').value.trim()?['Skipped','muted']:V('wc_reachable')?[`Reachable · vehicle ${V('wc_vehicle_connected')?'connected':'not connected'}`,'ok']:['Not reachable yet (it is read every 10 s)…','warn']},
+ {t:'Fallback',d:'If Aperta sends nothing (command or heartbeat) for the timeout, TeslaWBC charges at the fallback target. 0 means pause.',f:()=>numFields(['fallback_target','fallback_timeout']),save:()=>api('settings',numBody(['fallback_target','fallback_timeout']))},
+ {t:'Test run',d:'Plug in the car. Try each step and watch the currents settle within about 20 s. Leave TeslaWBC in Bypass for a day first if you want to be careful.',f:()=>[el('div',{class:'row'},...[['Bypass',{mode:'Bypass'}],['Manual 16 A',{mode:'Manual',target:16}],['Manual 10 A',{mode:'Manual',target:10}],['Manual 6 A',{mode:'Manual',target:6}],['Pause',{mode:'Pause'}]].map(([l,b])=>el('button',{class:'b',onclick:()=>control(b)},l))),el('p',{id:'wchk'})],check:()=>[`${V('state')||'–'} · target ${fmt(V('effective_target'),'A')} · car draws ${fmt(Math.max(V('current_l1')||0,V('current_l2')||0,V('current_l3')||0),'A',1)}`,V('control_lost')?'bad':'ok']},
+ {t:'Finish',d:'Setup is complete. From now on this page and the REST API ask for the device password. Hand control to Aperta: it sets Mode and Target Current and sends a heartbeat at least every Fallback Timeout.',f:()=>[],save:async()=>{await api('setup/complete',{});setTimeout(()=>location.reload(),800)},last:true}];
+let W=0;
+function inp(id,l,v,type='text'){return el('div',{},el('label',{for:id},l),el('input',{id,type,value:v??'',autocomplete:type=='password'?'new-password':'off'}))}
+function pwFields(){return el('div',{},inp('wp1','Password (8 to 64 characters)','','password'),inp('wp2','Repeat','','password'))}
+function numFields(ids){return ids.filter(id=>C.numbers[id]).map(id=>{const n=C.numbers[id];return el('div',{},el('label',{for:'w_'+id},`${n.name} (${n.unit})`),el('input',{id:'w_'+id,type:'number',min:n.min,max:n.max,step:n.step,value:n.value,style:'max-width:140px'}))})}
+async function wizard(){C=await api('settings');if(C.setup_done&&W==0)W=1;draw()}
+function draw(){const s=steps[W];$('#bar').replaceChildren(...steps.map((_,i)=>el('span',{class:i<=W?'done':''})));
+  $('#wiz').replaceChildren(el('h2',{},`${W+1}. ${s.t}`),el('p',{class:'muted'},s.d),...s.f(),
+    el('div',{class:'row',style:'margin-top:14px'},W>0?el('button',{class:'b',onclick:()=>{W--;draw()}},'Back'):'',el('button',{class:'b p',onclick:next},s.last?'Finish setup':'Next'),s.skip&&s.skip()?el('span',{class:'muted'},'A password is already set; Next keeps it if the fields are empty.'):''),el('div',{class:'msg',id:'wmsg'}));wizCheck()}
+function wizCheck(){const s=steps[W],c=$('#wchk');if(s&&s.check&&c){const[t,cls]=s.check();c.textContent=t;c.className=cls}if($('#wip'))$('#wip').textContent=V('ip_address')||'–'}
+async function next(){const s=steps[W];try{if(s.save&&!(s.skip&&s.skip()&&!$('#wp1').value))await s.save();if(!s.last){C=await api('settings');W++;draw()}}catch(e){msg('#wmsg',e.message,'bad')}}
+
+poll();setInterval(poll,2000);
+api('settings').then(c=>{C=c;if(!c.setup_done)show('setup')}).catch(()=>{});
+</script>
+</body>
+</html>

@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/ota/ota_backend_factory.h"
 #include "esphome/components/button/button.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/select/select.h"
@@ -12,6 +13,8 @@
 #include "esphome/components/web_server_base/web_server_base.h"
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
+
+#include "login_guard.h"
 
 namespace esphome::teslawbc_web {
 
@@ -53,10 +56,16 @@ class TeslaWbcWeb : public Component, public AsyncWebHandler {
   bool canHandle(AsyncWebServerRequest *request) const override;
   void handleRequest(AsyncWebServerRequest *request) override;
   void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) override;
+  void handleUpload(AsyncWebServerRequest *request, const std::string &filename, size_t index, uint8_t *data,
+                    size_t len, bool final) override;
   bool isRequestHandlerTrivial() const override { return false; }
 
  protected:
-  bool authorized_(AsyncWebServerRequest *request) const;
+  enum class Auth { OK, MISSING, WRONG, LOCKED };
+  // Checks the password and applies the login lockout.
+  Auth authorize_(AsyncWebServerRequest *request, uint32_t *retry_s);
+  void deny_(AsyncWebServerRequest *request, Auth auth, uint32_t retry_s);
+  static uint32_t client_key_(AsyncWebServerRequest *request);
   void send_json_(AsyncWebServerRequest *request, int code, const std::string &json);
   void send_error_(AsyncWebServerRequest *request, int code, const char *message);
 
@@ -66,6 +75,7 @@ class TeslaWbcWeb : public Component, public AsyncWebHandler {
   void handle_control_(AsyncWebServerRequest *request);
   void handle_password_(AsyncWebServerRequest *request);
   void handle_setup_complete_(AsyncWebServerRequest *request);
+  void handle_firmware_(AsyncWebServerRequest *request);
 
   void hash_password_(const char *salt, const std::string &password, char *out_hex) const;
   void set_password_(const std::string &password);
@@ -84,6 +94,17 @@ class TeslaWbcWeb : public Component, public AsyncWebHandler {
   StoredConfig cfg_{};
   ESPPreferenceObject pref_;
   std::string body_;  // request body being received (one request at a time)
+
+  teslawbc::LoginGuard guard_;
+
+  // Firmware upload in progress (one at a time)
+  ota::OTABackendPtr ota_backend_{nullptr};
+  bool upload_started_{false};
+  Auth upload_auth_{Auth::MISSING};
+  uint32_t upload_retry_s_{0};
+  size_t upload_bytes_{0};
+  bool upload_ok_{false};
+  const char *upload_error_{nullptr};
 };
 
 }  // namespace esphome::teslawbc_web

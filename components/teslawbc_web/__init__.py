@@ -10,14 +10,15 @@ import gzip
 from pathlib import Path
 
 import esphome.codegen as cg
+from esphome.components.esp32 import add_idf_component
 from esphome.components import binary_sensor, button, number, select, sensor, text_sensor
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
 from esphome.core import CORE
 
 CODEOWNERS = ["@R3stFu1"]
-DEPENDENCIES = ["network"]
 AUTO_LOAD = ["web_server_base", "json", "sha256"]
+DEPENDENCIES = ["network", "ota"]
 
 CONF_MODE = "mode"
 CONF_TARGET = "target"
@@ -79,5 +80,10 @@ async def to_code(config):
     for conf in config[CONF_TEXT_SENSORS]:
         cg.add(var.add_text_sensor(await cg.get_variable(conf)))
     cg.add(var.set_default_mqtt_port(config[CONF_DEFAULT_MQTT_PORT]))
+    # Firmware upload from the page: enables multipart uploads in the web
+    # server, with our own password-checked handler instead of /update.
+    cg.add_define("USE_WEBSERVER_OTA")
+    if CORE.is_esp32:
+        add_idf_component(name="zorxx/multipart-parser", ref="1.0.1")
     if "mqtt" in CORE.config:
         cg.add_define("TESLAWBC_USE_MQTT")

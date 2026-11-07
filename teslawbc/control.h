@@ -146,6 +146,84 @@ inline Result compute(const Settings &cfg, const Inputs &in) {
   return r;
 }
 
+// Shapes R before it is served, so the charger always sees a live, smooth
+// signal. Field reports (tesla-loadpilot, PVi1, Klangen82) show the Wall
+// Connector distrusts a meter whose value is flat for minutes or jumps in
+// steps that its own current does not explain, and then ignores it, often
+// until it is power-cycled. So:
+//
+//  * The part of R that TeslaWBC adds on top of the car's current, the
+//    offset R - max(W), moves towards its new value at ramp_rate A/s. This
+//    turns every target change, a pause and a return to Bypass into a
+//    smooth ramp. Changes in the car's own current still pass 1:1.
+//  * A small dither in [0, 2 x dither] A keeps the value from ever being
+//    flat, also in a pause and on a meter fault. It only ever adds, so R
+//    stays at or above what the wallbox draws.
+//  * A meter fault is served at once (no ramp): without a measurement
+//    there is nothing to echo, and stopping the car is the safe side.
+//    When the meter comes back, the offset starts from the fault value and
+//    ramps down from there.
+struct ShapeSettings {
+  float ramp_rate = 0.25f;  // A/s for the offset; 0 or less: no ramp
+  float dither = 0.05f;     // A
+};
+
+class Shaper {
+ public:
+  float update(const ShapeSettings &ss, uint32_t now_ms, const Result &r) {
+    float dt = have_time_ ? (uint32_t) (now_ms - last_ms_) / 1000.0f : 0.0f;
+    have_time_ = true;
+    last_ms_ = now_ms;
+    float out;
+    if (r.state == State::METER_FAULT || std::isnan(r.max_current)) {
+      out = r.reported;
+      have_offset_ = false;
+    } else {
+      float w = r.max_current;
+      float goal = r.reported - w;
+      if (goal < 0.0f) goal = 0.0f;
+      if (!have_offset_) {
+        // Start where the served value was (after a fault: L + margin).
+        offset_ = have_last_ ? last_out_ - w : goal;
+        if (offset_ < 0.0f) offset_ = 0.0f;
+        have_offset_ = true;
+      }
+      if (ss.ramp_rate > 0.0f) {
+        float step = ss.ramp_rate * dt;
+        if (offset_ < goal) {
+          offset_ = offset_ + step > goal ? goal : offset_ + step;
+        } else if (offset_ > goal) {
+          offset_ = offset_ - step < goal ? goal : offset_ - step;
+        }
+      } else {
+        offset_ = goal;
+      }
+      out = w + offset_;
+    }
+    if (std::isnan(out)) return out;
+    last_out_ = out;
+    have_last_ = true;
+    return out + ss.dither * next_noise_();
+  }
+
+  float offset() const { return offset_; }
+
+ private:
+  // Deterministic pseudo-random value in [0, 2].
+  float next_noise_() {
+    seed_ = seed_ * 1664525u + 1013904223u;
+    return (seed_ >> 8) * (2.0f / 16777216.0f);
+  }
+
+  bool have_time_ = false;
+  bool have_offset_ = false;
+  bool have_last_ = false;
+  uint32_t last_ms_ = 0;
+  float offset_ = 0.0f;
+  float last_out_ = 0.0f;
+  uint32_t seed_ = 12345u;
+};
+
 // Detects that the charger has stopped following the emulated meter.
 //
 // If the Wall Connector ever judges the meter implausible, it ignores it,

@@ -4,6 +4,8 @@
 #include <cstring>
 #include <strings.h>
 
+#include <lwip/sockets.h>
+
 #include "esphome/components/json/json_util.h"
 #include "esphome/components/sha256/sha256.h"
 #include "esphome/core/application.h"
@@ -119,29 +121,93 @@ void TeslaWbcWeb::set_password_(const std::string &password) {
   this->hash_password_(this->cfg_.password_salt, password, this->cfg_.password_hash);
 }
 
-bool TeslaWbcWeb::authorized_(AsyncWebServerRequest *request) const {
+uint32_t TeslaWbcWeb::client_key_(AsyncWebServerRequest *request) {
+  // The client's IP address, hashed into a key for the login lockout.
+  int fd = httpd_req_to_sockfd(*request);
+  struct sockaddr_storage addr {};
+  socklen_t len = sizeof(addr);
+  if (fd < 0 || lwip_getpeername(fd, reinterpret_cast<struct sockaddr *>(&addr), &len) != 0)
+    return 0;
+  uint32_t h = 2166136261u;
+  const uint8_t *p = nullptr;
+  size_t n = 0;
+  if (addr.ss_family == AF_INET) {
+    auto *a = reinterpret_cast<struct sockaddr_in *>(&addr);
+    p = reinterpret_cast<const uint8_t *>(&a->sin_addr);
+    n = sizeof(a->sin_addr);
+#if LWIP_IPV6
+  } else if (addr.ss_family == AF_INET6) {
+    auto *a = reinterpret_cast<struct sockaddr_in6 *>(&addr);
+    p = reinterpret_cast<const uint8_t *>(&a->sin6_addr);
+    n = sizeof(a->sin6_addr);
+#endif
+  }
+  for (size_t i = 0; i < n; i++)
+    h = (h ^ p[i]) * 16777619u;
+  return h;
+}
+
+TeslaWbcWeb::Auth TeslaWbcWeb::authorize_(AsyncWebServerRequest *request, uint32_t *retry_s) {
+  *retry_s = 0;
   // Until the setup wizard has set a password, the device is open.
   if (!this->cfg_.setup_done || this->cfg_.password_hash[0] == '\0')
-    return true;
+    return Auth::OK;
   auto header = request->get_header("Authorization");
   if (!header.has_value())
-    return false;
+    return Auth::MISSING;  // the browser asks for the password: not an attempt
+  uint32_t client = client_key_(request);
+  uint32_t now = millis();
+  uint32_t wait = this->guard_.check(client, now);
+  if (wait > 0) {
+    *retry_s = (wait + 999) / 1000;
+    return Auth::LOCKED;
+  }
+  bool ok = false;
   const std::string &h = header.value();
-  if (h.size() < 7 || strncasecmp(h.c_str(), "Basic ", 6) != 0)
-    return false;
-  uint8_t decoded[160];
-  size_t n = base64_decode(h.substr(6), decoded, sizeof(decoded) - 1);
-  decoded[n] = '\0';
-  const char *colon = strchr(reinterpret_cast<const char *>(decoded), ':');
-  if (colon == nullptr)
-    return false;
-  char hex[65];
-  this->hash_password_(this->cfg_.password_salt, std::string(colon + 1), hex);
-  // Constant-time comparison
-  uint8_t diff = 0;
-  for (size_t i = 0; i < 64; i++)
-    diff |= hex[i] ^ this->cfg_.password_hash[i];
-  return diff == 0;
+  if (h.size() >= 7 && strncasecmp(h.c_str(), "Basic ", 6) == 0) {
+    uint8_t decoded[160];
+    size_t n = base64_decode(h.substr(6), decoded, sizeof(decoded) - 1);
+    decoded[n] = '\0';
+    const char *colon = strchr(reinterpret_cast<const char *>(decoded), ':');
+    if (colon != nullptr) {
+      char hex[65];
+      this->hash_password_(this->cfg_.password_salt, std::string(colon + 1), hex);
+      // Constant-time comparison
+      uint8_t diff = 0;
+      for (size_t i = 0; i < 64; i++)
+        diff |= hex[i] ^ this->cfg_.password_hash[i];
+      ok = diff == 0;
+    }
+  }
+  if (ok) {
+    this->guard_.success(client);
+    return Auth::OK;
+  }
+  uint32_t w = this->guard_.fail(client, now);
+  *retry_s = (w + 999) / 1000;
+  ESP_LOGW(TAG, "Wrong device password (%u in a row from this client), next try in %u s",
+           (unsigned) this->guard_.fails(client), (unsigned) *retry_s);
+  return Auth::WRONG;
+}
+
+void TeslaWbcWeb::deny_(AsyncWebServerRequest *request, Auth auth, uint32_t retry_s) {
+  char retry[12];
+  snprintf(retry, sizeof(retry), "%u", (unsigned) retry_s);
+  if (auth == Auth::LOCKED) {
+    std::string json = "{\"error\":\"too many wrong passwords, try again in " + std::string(retry) +
+                       " s\",\"retry_after_s\":" + retry + "}";
+    auto *res = request->beginResponse(429, "application/json", json);
+    res->addHeader("Retry-After", retry);
+    request->send(res);
+    return;
+  }
+  std::string json = auth == Auth::WRONG ? "{\"error\":\"wrong password\",\"retry_after_s\":" + std::string(retry) + "}"
+                                         : std::string("{\"error\":\"password required\"}");
+  auto *res = request->beginResponse(401, "application/json", json);
+  res->addHeader("WWW-Authenticate", "Basic realm=\"TeslaWBC\", charset=\"UTF-8\"");
+  if (auth == Auth::WRONG)
+    res->addHeader("Retry-After", retry);
+  request->send(res);
 }
 
 // ---------------------------------------------------------------------------
@@ -182,10 +248,16 @@ void TeslaWbcWeb::handleRequest(AsyncWebServerRequest *request) {
     body.swap(this->body_);
   }
 
-  if (!this->authorized_(request)) {
-    auto *res = request->beginResponse(401, "application/json", std::string("{\"error\":\"password required\"}"));
-    res->addHeader("WWW-Authenticate", "Basic realm=\"TeslaWBC\", charset=\"UTF-8\"");
-    request->send(res);
+  // Firmware uploads were authorized when the upload started.
+  if (url == "/api/firmware" && post) {
+    this->handle_firmware_(request);
+    return;
+  }
+
+  uint32_t retry_s;
+  Auth auth = this->authorize_(request, &retry_s);
+  if (auth != Auth::OK) {
+    this->deny_(request, auth, retry_s);
     return;
   }
 
@@ -429,6 +501,94 @@ void TeslaWbcWeb::handle_setup_complete_(AsyncWebServerRequest *request) {
     ESP_LOGI(TAG, "Setup complete; the device password is now required");
   });
   this->send_json_(request, 200, "{\"ok\":true}");
+}
+
+// ---------------------------------------------------------------------------
+// Firmware update: POST /api/firmware, multipart/form-data with the .bin file
+// (firmware.ota.bin from the ESPHome build). Runs in the web server task.
+// ---------------------------------------------------------------------------
+
+void TeslaWbcWeb::handleUpload(AsyncWebServerRequest *request, const std::string &filename, size_t index,
+                               uint8_t *data, size_t len, bool final) {
+  if (index == 0 && len == 0 && !final) {
+    // Start of a new upload: check the password once, before any flash write.
+    if (this->ota_backend_) {
+      ESP_LOGW(TAG, "New firmware upload while the previous one was open: aborting the previous one");
+      this->ota_backend_->abort();
+      this->ota_backend_.reset();
+    }
+    this->upload_started_ = true;
+    this->upload_ok_ = false;
+    this->upload_error_ = nullptr;
+    this->upload_bytes_ = 0;
+    this->upload_auth_ = this->authorize_(request, &this->upload_retry_s_);
+    if (this->upload_auth_ != Auth::OK)
+      return;
+    ESP_LOGI(TAG, "Firmware upload started: %s", filename.c_str());
+    this->ota_backend_ = ota::make_ota_backend();
+    if (!this->ota_backend_ || this->ota_backend_->begin(0) != ota::OTA_RESPONSE_OK) {
+      this->ota_backend_.reset();
+      this->upload_error_ = "could not start the update";
+    }
+    return;
+  }
+  if (!this->ota_backend_)
+    return;
+  if (len > 0) {
+    if (this->ota_backend_->write(data, len) != ota::OTA_RESPONSE_OK) {
+      ESP_LOGE(TAG, "Firmware write failed after %u bytes", (unsigned) this->upload_bytes_);
+      this->ota_backend_->abort();
+      this->ota_backend_.reset();
+      this->upload_error_ = "writing the firmware failed: is this a TeslaWBC .bin file?";
+      return;
+    }
+    this->upload_bytes_ += len;
+  }
+  if (final) {
+    if (this->ota_backend_->end() == ota::OTA_RESPONSE_OK) {
+      this->upload_ok_ = true;
+      ESP_LOGI(TAG, "Firmware update written (%u bytes)", (unsigned) this->upload_bytes_);
+    } else {
+      this->upload_error_ = "the firmware file is incomplete or invalid";
+    }
+    this->ota_backend_.reset();
+  }
+}
+
+void TeslaWbcWeb::handle_firmware_(AsyncWebServerRequest *request) {
+  if (!this->upload_started_) {
+    // No file part arrived (or not a multipart request).
+    uint32_t retry_s;
+    Auth auth = this->authorize_(request, &retry_s);
+    if (auth != Auth::OK) {
+      this->deny_(request, auth, retry_s);
+    } else {
+      this->send_error_(request, 400, "no firmware file received");
+    }
+    return;
+  }
+  this->upload_started_ = false;
+  if (this->ota_backend_) {
+    // The request ended without a final part.
+    this->ota_backend_->abort();
+    this->ota_backend_.reset();
+    if (this->upload_error_ == nullptr)
+      this->upload_error_ = "the upload was cut off";
+  }
+  if (this->upload_auth_ != Auth::OK) {
+    Auth auth = this->upload_auth_;
+    this->upload_auth_ = Auth::MISSING;
+    this->deny_(request, auth, this->upload_retry_s_);
+    return;
+  }
+  this->upload_auth_ = Auth::MISSING;  // the next upload checks again
+  if (!this->upload_ok_) {
+    this->send_error_(request, 400, this->upload_error_ != nullptr ? this->upload_error_ : "no firmware file received");
+    return;
+  }
+  this->upload_ok_ = false;
+  this->send_json_(request, 200, "{\"ok\":true,\"restarting\":true}");
+  this->defer([this]() { this->set_timeout(500, []() { App.safe_reboot(); }); });
 }
 
 }  // namespace esphome::teslawbc_web

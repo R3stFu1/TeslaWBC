@@ -61,6 +61,12 @@ table{border-collapse:collapse;width:100%}td{padding:6px 4px;border-bottom:1px s
     <label>Repeat</label><input id="pw2" type="password" autocomplete="new-password">
     <div class="row" style="margin-top:12px"><button class="b p" id="pwsave">Change password</button></div><div class="msg" id="pwmsg"></div>
   </div>
+  <div class="card"><h2>Firmware update</h2>
+    <p class="muted">Running <span id="fwver">–</span>. Choose the <code>firmware.ota.bin</code> file from the ESPHome build. TeslaWBC stops answering the Wall Connector for about 20 s while it restarts. Tesla documents a 6 A limit while the meter is silent, but that is not yet tested here, so update when no car is charging.</p>
+    <input id="fwfile" type="file" accept=".bin">
+    <div class="row" style="margin-top:12px"><button class="b p" id="fwup">Upload and restart</button></div>
+    <progress id="fwprog" max="100" value="0" class="hide" style="width:100%;margin-top:10px"></progress><div class="msg" id="fwmsg"></div>
+  </div>
   <div class="card"><h2>Device</h2><div class="row"><button class="b" id="restart">Restart</button><button class="b" id="reset">Factory reset</button></div>
     <p class="muted">Factory reset clears the device password and the connection settings and restarts the setup wizard. You can also hold the board's user button for 10 seconds.</p></div>
 </section>
@@ -100,7 +106,7 @@ async function control(b){try{await api('control',b);msg('#ctlmsg','Sent.','ok')
 $('#tgtset').onclick=()=>control({target:+$('#tgt').value});
 
 // ---- settings
-async function loadSettings(){C=await api('settings');
+async function loadSettings(){C=await api('settings');$('#fwver').textContent=S.firmware||'–';
   $('#nums').replaceChildren(...Object.entries(C.numbers).map(([id,n])=>el('div',{},el('label',{for:'n_'+id},`${n.name} (${n.min} to ${n.max} ${n.unit})`),el('input',{id:'n_'+id,type:'number',min:n.min,max:n.max,step:n.step,value:n.value,style:'max-width:140px'}))));
   for(const k of['mqtt_host','mqtt_port','mqtt_user','wc_host'])$('#s_'+k).value=C[k]??'';$('#s_mqtt_password').value='';}
 function numBody(ids){const b={};for(const id of ids||Object.keys(C.numbers)){const i=$('#n_'+id)||$('#w_'+id);if(i)b[id]=+i.value}return b}
@@ -109,6 +115,15 @@ function conBody(p=''){const b={mqtt_host:$('#'+p+'mqtt_host').value.trim(),mqtt
 $('#consave').onclick=async()=>{try{await api('settings',{...conBody('s_'),wc_host:$('#s_wc_host').value.trim()});msg('#conmsg','Saved. MQTT reconnects with the new settings.','ok')}catch(e){msg('#conmsg',e.message,'bad')}};
 $('#pwsave').onclick=async()=>{if($('#pw1').value!==$('#pw2').value)return msg('#pwmsg','The two passwords differ.','bad');try{await api('password',{password:$('#pw1').value});msg('#pwmsg','Changed. Your browser will ask for the new password.','ok')}catch(e){msg('#pwmsg',e.message,'bad')}};
 $('#restart').onclick=async()=>{if(confirm('Restart TeslaWBC?')){await api('restart',{});msg('#conmsg','Restarting…')}};
+$('#fwup').onclick=()=>{const f=$('#fwfile').files[0];if(!f)return msg('#fwmsg','Choose a .bin file first.','bad');
+  if(!confirm(`Install ${f.name} and restart TeslaWBC?`))return;
+  const fd=new FormData();fd.append('firmware',f,f.name);const x=new XMLHttpRequest();const p=$('#fwprog');p.classList.remove('hide');p.value=0;$('#fwup').disabled=true;
+  x.upload.onprogress=e=>{if(e.lengthComputable)p.value=e.loaded*100/e.total};
+  x.onload=()=>{let j={};try{j=JSON.parse(x.responseText)}catch(e){}
+    if(x.status==200){p.value=100;msg('#fwmsg','Installed. Restarting… the page reloads in 20 s.','ok');setTimeout(()=>location.reload(),20000)}
+    else{$('#fwup').disabled=false;msg('#fwmsg',j.error||('HTTP '+x.status),'bad')}};
+  x.onerror=()=>{$('#fwup').disabled=false;msg('#fwmsg','Upload failed: connection lost.','bad')};
+  x.open('POST','/api/firmware');x.send(fd)};
 $('#reset').onclick=async()=>{if(confirm('Clear the device password and connection settings?')){await api('factory-reset',{});location.reload()}};
 
 // ---- setup wizard

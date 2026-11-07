@@ -245,6 +245,114 @@ static void test_control_watch() {
   CHECK(!bw.update(ws, 10 * ws.hold_ms, compute(cfg, in)));
 }
 
+static void test_shaper_ramps_target_changes() {
+  Settings cfg;
+  ShapeSettings ss;  // 0.25 A/s, dither 0.05 A
+  ss.dither = 0.0f;
+  Shaper sh;
+  Inputs in = base(16.0f, 16.0f, 16.0f);
+  in.mode = Mode::MANUAL;
+  in.target = 16.0f;
+  CHECK(near(sh.update(ss, 0, compute(cfg, in)), 16.0f + 2.0f));  // first value: no ramp
+  // Target 16 -> 6 A: the offset climbs from 2 to 12 A at 0.25 A/s.
+  in.target = 6.0f;
+  CHECK(near(sh.update(ss, 1000, compute(cfg, in)), 16.0f + 2.25f));
+  CHECK(near(sh.update(ss, 5000, compute(cfg, in)), 16.0f + 3.25f));
+  // The car's own current still passes 1:1 during the ramp.
+  in.current[0] = in.current[1] = in.current[2] = 15.0f;
+  CHECK(near(sh.update(ss, 5000, compute(cfg, in)), 15.0f + 3.25f));
+  // After 40 s the ramp is done and R is exactly the formula.
+  float r = 0;
+  for (uint32_t t = 5250; t <= 45000; t += 250) r = sh.update(ss, t, compute(cfg, in));
+  CHECK(near(r, compute(cfg, in).reported));
+  // Up again: the offset falls just as smoothly.
+  in.target = 16.0f;
+  CHECK(near(sh.update(ss, 46000, compute(cfg, in)), 15.0f + 11.75f));
+}
+
+static void test_shaper_never_steps() {
+  // Whatever the mode changes, consecutive served values differ by no more
+  // than the car's own change plus ramp_rate x dt plus the dither.
+  Settings cfg;
+  ShapeSettings ss;
+  Shaper sh;
+  Inputs in = base(10.0f, 10.0f, 10.0f);
+  in.mode = Mode::MANUAL;
+  in.target = 10.0f;
+  float prev = sh.update(ss, 0, compute(cfg, in));
+  uint32_t t = 0;
+  const Mode modes[] = {Mode::PAUSE, Mode::BYPASS, Mode::MANUAL, Mode::PAUSE, Mode::MANUAL, Mode::BYPASS};
+  for (Mode m : modes) {
+    in.mode = m;
+    in.target = (m == Mode::MANUAL) ? (in.target > 10.0f ? 6.0f : 16.0f) : in.target;
+    for (int i = 0; i < 200; ++i) {
+      t += 250;
+      in.now_ms = t;
+      in.last_meter_ms = t;
+      in.last_cmd_ms = t;
+      Result res = compute(cfg, in);
+      float v = sh.update(ss, t, res);
+      CHECK(std::fabs(v - prev) <= ss.ramp_rate * 0.25f + 2.0f * ss.dither + 1e-4f);
+      CHECK(v >= res.max_current);
+      prev = v;
+    }
+  }
+}
+
+static void test_shaper_dither_never_flat() {
+  Settings cfg;
+  ShapeSettings ss;
+  Shaper sh;
+  Inputs in = base(0.0f, 0.0f, 0.0f);
+  in.mode = Mode::PAUSE;
+  float lo = 1e9f, hi = -1e9f;
+  int changes = 0;
+  float prev = NAN;
+  for (uint32_t t = 0; t < 60000; t += 250) {
+    in.now_ms = t;
+    in.last_meter_ms = t;
+    in.last_cmd_ms = t;
+    float v = sh.update(ss, t, compute(cfg, in));
+    if (t > 40000) {  // after the start-up ramp
+      lo = std::fmin(lo, v);
+      hi = std::fmax(hi, v);
+      if (!std::isnan(prev) && v != prev) ++changes;
+      prev = v;
+    }
+  }
+  CHECK(lo >= 20.0f - 1e-4f);         // only adds: L + margin is the floor
+  CHECK(hi <= 20.0f + 0.1f + 1e-4f);  // and at most 2 x dither on top
+  CHECK(changes > 50);
+}
+
+static void test_shaper_meter_fault_is_immediate() {
+  Settings cfg;
+  ShapeSettings ss;
+  ss.dither = 0.0f;
+  Shaper sh;
+  Inputs in = base(10.0f, 10.0f, 10.0f);
+  in.mode = Mode::MANUAL;
+  in.target = 10.0f;
+  CHECK(near(sh.update(ss, 10000, compute(cfg, in)), 18.0f));
+  // Meter silent: L + margin at once.
+  in.now_ms = 20000;
+  Result fault = compute(cfg, in);
+  CHECK(fault.state == State::METER_FAULT);
+  CHECK(near(sh.update(ss, 20000, fault), 20.0f));
+  // Meter back, car still at 10 A: start at the fault value, ramp down to 18.
+  in.last_meter_ms = 20250;
+  in.now_ms = 20250;
+  in.last_cmd_ms = 20250;
+  CHECK(near(sh.update(ss, 20250, compute(cfg, in)), 20.0f - 0.0625f));
+  // Boot: the first value ever is a fault, then the meter appears in Bypass.
+  Shaper boot;
+  Inputs fresh;
+  CHECK(near(boot.update(ss, 0, compute(cfg, fresh)), 20.0f));
+  Inputs up = base(0.0f, 0.0f, 0.0f);
+  up.mode = Mode::BYPASS;
+  CHECK(near(boot.update(ss, 1000, compute(cfg, up)), 20.0f - 0.25f));
+}
+
 int main() {
   test_bypass_reports_honest_current();
   test_manual_formula();
@@ -260,6 +368,10 @@ int main() {
   test_fallback_when_controller_silent();
   test_millis_wraparound();
   test_control_watch();
+  test_shaper_ramps_target_changes();
+  test_shaper_never_steps();
+  test_shaper_dither_never_flat();
+  test_shaper_meter_fault_is_immediate();
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;
 }

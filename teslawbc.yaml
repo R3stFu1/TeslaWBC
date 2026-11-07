@@ -98,6 +98,7 @@ teslawbc_web:
     - min_current
     - fallback_target
     - fallback_timeout
+    - ramp_rate
   sensors:
     - meter_v1
     - meter_v2
@@ -219,6 +220,13 @@ script:
           in.last_cmd_ms = id(last_cmd_ms);
 
           teslawbc::Result r = teslawbc::compute(cfg, in);
+
+          // Ramp target changes and dither, so the charger sees a live,
+          // smooth signal and never distrusts the meter.
+          teslawbc::ShapeSettings ss;
+          ss.ramp_rate = id(ramp_rate).state;
+          static teslawbc::Shaper shaper;
+          r.reported = shaper.update(ss, in.now_ms, r);
 
           // Power per CT for the Neurio power registers: R times phase voltage.
           float v[3] = {id(meter_v1).get_raw_state(), id(meter_v2).get_raw_state(),
@@ -730,6 +738,21 @@ number:
     max_value: 60
     step: 1
     initial_value: 5
+    optimistic: true
+    restore_value: true
+  # How fast TeslaWBC moves the charger to a new target, a pause or Bypass.
+  # The car's own current always passes through at once.
+  - platform: template
+    id: ramp_rate
+    name: "Ramp Rate"
+    icon: mdi:chart-line-variant
+    entity_category: config
+    unit_of_measurement: A/s
+    mode: box
+    min_value: 0.05
+    max_value: 2
+    step: 0.05
+    initial_value: 0.25
     optimistic: true
     restore_value: true
 

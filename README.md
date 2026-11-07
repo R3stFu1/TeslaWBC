@@ -46,6 +46,14 @@ R follows the car's current 1:1 and is never below what the wallbox draws. Both 
 | Manual | max(W) + (L - T) | Holds T, clamped to Min Current (default 6 A) up to Max Output Current. Below Min Current it pauses |
 | Pause | max(L, max(W)) + 2 A | Opens the contactor, resumes when the mode changes |
 
+### Smooth and live signal
+
+Field reports show the charger also distrusts a meter whose value stays flat for minutes, or jumps in steps its own current does not explain. So TeslaWBC shapes R before serving it:
+
+- **Ramp:** the part TeslaWBC adds on top of the car's current, R − max(W), moves to its new value at *Ramp Rate* (default 0.25 A/s). A target change from 16 A to 6 A therefore takes about 40 s, and so do a pause and a return to Bypass. Changes in the car's own current still pass through at once.
+- **Dither:** a few hundredths of an amp of noise (0 to +0.1 A) keep R from ever being flat, also in a pause and on a meter fault. It only adds, so R never drops below what the wallbox draws.
+- A **meter fault** is served at once, without a ramp: with no measurement there is nothing to follow, and stopping the car is the safe side.
+
 ### Fail-safes
 
 - **Meter fault** (no valid reading for 3 s): report L + 2 A, so charging pauses. This applies in every mode, including Bypass.
@@ -70,6 +78,10 @@ TeslaWBC gets its network address by DHCP. Open `http://<ip>/` in a browser (res
 
 **Device password:** protects the page and the REST API (HTTP Basic, any user name). It is stored as a salted SHA-256 hash. HTTP is not encrypted, so keep TeslaWBC in your own network and never expose it to the internet. Until the wizard is finished the device is open and stays in **Bypass**, so it does not steer anything before it is set up.
 
+**Login lockout:** each wrong password makes that client wait twice as long before it may try again: 1 s, 2 s, 4 s and so on, up to 1 hour. Attempts during the wait are refused without checking the password (HTTP 429 with `Retry-After`). The count resets after a correct password, or when the client has not tried for twice its current wait. Clients are tracked by IP address, so someone guessing from one computer does not lock Aperta out.
+
+**Firmware update:** *Settings → Firmware update*: choose `firmware.ota.bin` from the ESPHome build and upload it. The upload needs the device password. TeslaWBC is silent towards the Wall Connector for about 20 s while it restarts, so update when no car is charging. Updating with `esphome run` over the network keeps working too.
+
 **Factory reset:** *Settings → Factory reset*, or hold the board's user button (BUT1) for 10 seconds. It clears the device password, the MQTT and Wall Connector settings and reopens the wizard. Charging limits and mode are kept.
 
 ## Interface to Aperta: REST and MQTT
@@ -84,10 +96,11 @@ Both interfaces offer the same functions; Aperta can use either or both.
 | `POST /api/control` | `{"mode":"Manual","target":10}` (either key optional) | Set mode and/or target. Every call also counts as heartbeat |
 | `POST /api/heartbeat` | `{}` | Sign of life only |
 | `GET /api/settings` | | Charging settings with ranges, MQTT broker and user, Wall Connector address |
-| `POST /api/settings` | e.g. `{"max_conductor_limit":18,"mqtt_host":"192.168.1.10"}` | Change any subset. Keys: `max_conductor_limit`, `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`, `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password`, `wc_host` |
+| `POST /api/settings` | e.g. `{"max_conductor_limit":18,"mqtt_host":"192.168.1.10"}` | Change any subset. Keys: `max_conductor_limit`, `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`, `ramp_rate`, `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password`, `wc_host` |
 | `POST /api/password` | `{"password":"…"}` | Change the device password (8 to 64 characters) |
 | `POST /api/setup/complete` | `{}` | Finish setup (needs a password); from then on the password is required |
 | `POST /api/restart` | `{}` | Reboot |
+| `POST /api/firmware` | `multipart/form-data` with the `.bin` file | Install new firmware and restart |
 | `POST /api/factory-reset` | `{}` | Same as the button reset |
 
 Example `GET /api/status`:
@@ -113,7 +126,7 @@ Values that are not known yet are `null`.
 | Set mode | `teslawbc/select/mode/command` ← `Bypass`, `Manual` or `Pause` |
 | Set target current | `teslawbc/number/target_current/command` ← `10` |
 | Heartbeat | `teslawbc/button/heartbeat/command` ← `PRESS` |
-| Settings | `teslawbc/number/max_conductor_limit/command` (also `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`) |
+| Settings | `teslawbc/number/max_conductor_limit/command` (also `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`, `ramp_rate`) |
 | Restart | `teslawbc/button/restart/command` ← `PRESS` |
 | All values | `teslawbc/<type>/<name>/state`, with the names of the `values` keys above, e.g. `teslawbc/sensor/current_l1/state`, `teslawbc/binary_sensor/control_lost/state` (`ON`/`OFF`), `teslawbc/text_sensor/state/state` |
 | Online | `teslawbc/status` = `online`, or `offline` via the broker's last will |

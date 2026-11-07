@@ -146,4 +146,51 @@ inline Result compute(const Settings &cfg, const Inputs &in) {
   return r;
 }
 
+// Detects that the charger has stopped following the emulated meter.
+//
+// If the Wall Connector ever judges the meter implausible, it ignores it,
+// sometimes for hours, and charges at its own maximum. Pause then has no
+// effect either. This watch raises an alarm when, for longer than
+// hold_ms, the car draws clearly more than the target (Charging states) or
+// any real current keeps flowing while TeslaWBC asks for a pause. It clears
+// as soon as the condition ends. Bypass and meter faults are never judged.
+struct WatchSettings {
+  float over_target_margin = 1.5f;  // A above the target that counts as "not following"
+  float pause_current = 1.0f;       // A that counts as "still charging" in a pause
+  uint32_t hold_ms = 3u * 60u * 1000u;
+};
+
+class ControlWatch {
+ public:
+  // Call after every compute(); returns true while control is lost.
+  bool update(const WatchSettings &ws, uint32_t now_ms, const Result &r) {
+    bool violating = false;
+    switch (r.state) {
+      case State::CHARGING:
+      case State::FALLBACK_CHARGING:
+        violating = r.max_current > r.effective_target + ws.over_target_margin;
+        break;
+      case State::PAUSED:
+      case State::FALLBACK_PAUSED:
+        violating = r.max_current > ws.pause_current;
+        break;
+      default:
+        break;
+    }
+    if (!violating) {
+      since_valid_ = false;
+      return false;
+    }
+    if (!since_valid_) {
+      since_valid_ = true;
+      since_ms_ = now_ms;
+    }
+    return (uint32_t) (now_ms - since_ms_) >= ws.hold_ms;
+  }
+
+ private:
+  bool since_valid_ = false;
+  uint32_t since_ms_ = 0;
+};
+
 }  // namespace teslawbc

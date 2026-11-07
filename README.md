@@ -52,6 +52,11 @@ R follows the car's current 1:1 and is never below what the wallbox draws. Both 
 - **Aperta silent** (no command or heartbeat for longer than *Fallback Timeout*, default 5 min): Manual and Pause switch to *Fallback Target* (default 6 A; 0 means pause). Bypass stays Bypass.
 - **ESP32 off or crashed**: the charger falls back to Tesla's built-in 6 A cap.
 - **Bypass mode** is the kill switch, without rewiring.
+- **Control Lost alarm**: if the charger ever judges the meter implausible, it ignores it, sometimes for hours, and charges at its own maximum; Pause stops working too. TeslaWBC raises *Control Lost* when the car draws more than 1.5 A above the target, or more than 1 A during a pause, for 3 minutes. It clears as soon as the charger follows again. Aperta should alert on it. Recovery that worked for others: switch the Wall Connector off and on, then leave TeslaWBC in Bypass for a few hours.
+
+### Wall Connector status
+
+TeslaWBC also reads the Wall Connector's local API (`/api/1/vitals`) every 10 s and passes on vehicle connected, contactor closed, vehicle current, session energy, session time and EVSE state. This is for information only and never used for control. Set the address in the `twc_vitals_url` substitution and give the Wall Connector a fixed IP in your router. If it is unreachable, *WC Reachable* goes off and control carries on unaffected.
 
 The logic is in [`teslawbc/control.h`](teslawbc/control.h), plain C++ with no ESPHome dependency, and is unit-tested in [`tests/`](tests/).
 
@@ -77,6 +82,9 @@ TeslaWBC offers the same functions over two interfaces, and Aperta can use eithe
 | Current reported to the charger (R) | `teslawbc/sensor/reported_current/state` | `GET /sensor/Reported%20Current` |
 | Target in use (A, `nan` when not regulating) | `teslawbc/sensor/effective_target/state` | `GET /sensor/Effective%20Target` |
 | Health flags (`ON`/`OFF`) | `teslawbc/binary_sensor/meter_ok/state`, `…/charger_polling/state`, `…/fallback_active/state` | `GET /binary_sensor/Meter%20OK`, `/binary_sensor/Charger%20Polling`, `/binary_sensor/Fallback%20Active` |
+| **Control Lost** (`ON` when the charger stops following TeslaWBC, see below) | `teslawbc/binary_sensor/control_lost/state` | `GET /binary_sensor/Control%20Lost` |
+| Wall Connector: vehicle connected, contactor closed, reachable (`ON`/`OFF`) | `teslawbc/binary_sensor/wc_vehicle_connected/state`, `…/wc_contactor_closed/state`, `…/wc_reachable/state` | `GET /binary_sensor/WC%20Vehicle%20Connected`, `/binary_sensor/WC%20Contactor%20Closed`, `/binary_sensor/WC%20Reachable` |
+| Wall Connector: vehicle current (A), session energy (kWh), session time (s), EVSE state | `teslawbc/sensor/wc_vehicle_current/state`, `…/wc_session_energy/state`, `…/wc_session_time/state`, `…/wc_evse_state/state` | `GET /sensor/WC%20Vehicle%20Current`, `/sensor/WC%20Session%20Energy`, `/sensor/WC%20Session%20Time`, `/sensor/WC%20EVSE%20State` |
 | Charger poll interval (ms, about 190) | `teslawbc/sensor/charger_poll_interval/state` | `GET /sensor/Charger%20Poll%20Interval` |
 | **Device online?** | `teslawbc/status` = `online`, or `offline` via the broker's last will | no answer to a request (Aperta polls) |
 | **Live updates** | subscribe to `teslawbc/#` | `GET /events` (Server-Sent Events stream) |
@@ -96,6 +104,23 @@ mosquitto_pub -h <broker> -t teslawbc/number/target_current/command -m 10
 curl --digest -u teslawbc:<password> http://<ip>/sensor/Current%20L1
 curl --digest -u teslawbc:<password> -X POST 'http://<ip>/select/Mode/set?option=Manual'
 ```
+
+## Example: charging in the cheap hours
+
+Aperta plans a window, say 01:00 to 05:00. The rest state is **Pause**, so a plugged-in car waits.
+
+| # | When | Aperta does | TeslaWBC and the charger |
+|---|---|---|---|
+| 1 | Idle | Mode = `Pause` | Reports L + 2 A. The charger does not start a session |
+| 2 | Car plugged in | Sees *WC Vehicle Connected* = `ON` and reads the car's state of charge (WiCAN) | Car shows "waiting" |
+| 3 | Before the window | Plans current and slots from the price curve and the energy needed. Notes *Energy* as the start value | Waiting |
+| 4 | Window opens | Target = `16`, then Mode = `Manual` | The contactor closes within about 25 s, the car ramps to 16 A within 5 to 20 s. State = `Charging` |
+| 5 | During the window | Writes the target every minute (also the heartbeat). Lowers it for house load or a pricier slot | Holds each new target within 5 to 20 s |
+| 6 | Car full early | Car reports full, or the currents stay below 1 A: Mode = `Pause` | Session ends |
+| 7 | Window closes | Mode = `Pause`. Energy charged = *Energy* now minus the start value | The contactor opens within about 10 s. State = `Paused` |
+| — | Any time | Alert if *Control Lost* or *Fallback Active* turns `ON` | |
+
+The car's own charging schedule should be off, so the car charges whenever the Wall Connector allows and Aperta alone decides when.
 
 ## Building and flashing
 

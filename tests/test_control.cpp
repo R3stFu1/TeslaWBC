@@ -212,6 +212,39 @@ static void test_millis_wraparound() {
   CHECK(r.state == State::CHARGING);
 }
 
+static void test_control_watch() {
+  Settings cfg;
+  WatchSettings ws;  // 1.5 A margin, 1 A in pause, 3 min hold
+  ControlWatch watch;
+  Inputs in = base(10.0f, 10.0f, 10.0f);
+  in.mode = Mode::MANUAL;
+  in.target = 10.0f;
+  // Following the target: never an alarm.
+  CHECK(!watch.update(ws, 0, compute(cfg, in)));
+  CHECK(!watch.update(ws, 600000, compute(cfg, in)));
+  // Drawing 16 A against a 10 A target: alarm only after the hold time.
+  in.current[0] = in.current[1] = in.current[2] = 16.0f;
+  CHECK(!watch.update(ws, 1000000, compute(cfg, in)));
+  CHECK(!watch.update(ws, 1000000 + ws.hold_ms - 1, compute(cfg, in)));
+  CHECK(watch.update(ws, 1000000 + ws.hold_ms, compute(cfg, in)));
+  // Back on target: clears at once, and the timer restarts.
+  in.current[0] = in.current[1] = in.current[2] = 10.0f;
+  CHECK(!watch.update(ws, 1300000, compute(cfg, in)));
+  in.current[0] = in.current[1] = in.current[2] = 16.0f;
+  CHECK(!watch.update(ws, 1300001, compute(cfg, in)));
+  // Current flowing in Pause.
+  ControlWatch pw;
+  in.mode = Mode::PAUSE;
+  in.current[0] = in.current[1] = in.current[2] = 6.0f;
+  CHECK(!pw.update(ws, 0, compute(cfg, in)));
+  CHECK(pw.update(ws, ws.hold_ms, compute(cfg, in)));
+  // Bypass is never judged.
+  ControlWatch bw;
+  in.mode = Mode::BYPASS;
+  CHECK(!bw.update(ws, 0, compute(cfg, in)));
+  CHECK(!bw.update(ws, 10 * ws.hold_ms, compute(cfg, in)));
+}
+
 int main() {
   test_bypass_reports_honest_current();
   test_manual_formula();
@@ -226,6 +259,7 @@ int main() {
   test_meter_nan_is_fault();
   test_fallback_when_controller_silent();
   test_millis_wraparound();
+  test_control_watch();
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;
 }

@@ -3,3 +3,4 @@ secrets.yaml
 /.pioenvs/
 /.piolibdeps/
 tests/test_control
+__pycache__/

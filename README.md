@@ -2,7 +2,7 @@
 
 Local current control for a **Tesla Wall Connector Gen 3**, without the Tesla cloud.
 
-An ESP32 reads a dedicated energy meter on the wallbox feed and poses as the Neurio meter that the Wall Connector polls over RS-485. By choosing which current it reports, it makes the charger hold a target current between 6 and 16 A (three-phase), or pause. The ESP32 has no logic of its own. Home Assistant sets the mode and the target, and the ESP32 falls back to a configured target if Home Assistant goes silent.
+An ESP32 reads a dedicated energy meter on the wallbox feed and poses as the Neurio meter that the Wall Connector polls over RS-485. By choosing which current it reports, it makes the charger hold a target current between 6 and 16 A (three-phase), or pause. The ESP32 has no logic of its own. The building platform (Aperta) sets the mode and the target over MQTT, and the ESP32 falls back to a configured target if Aperta goes silent.
 
 ## Hardware
 
@@ -49,35 +49,70 @@ R follows the car's current 1:1 and is never below what the wallbox draws. Both 
 ### Fail-safes
 
 - **Meter fault** (no valid reading for 3 s): report L + 2 A, so charging pauses. This applies in every mode, including Stock.
-- **Home Assistant silent** (not connected for longer than *Fallback Timeout*, default 5 min): Manual and Pause switch to *Fallback Target* (default 6 A; 0 means pause). Stock stays Stock.
+- **Aperta silent** (no command or heartbeat for longer than *Fallback Timeout*, default 5 min): Manual and Pause switch to *Fallback Target* (default 6 A; 0 means pause). Stock stays Stock.
 - **ESP32 off or crashed**: the charger falls back to Tesla's built-in 6 A cap.
 - **Stock mode** is the kill switch, without rewiring.
 
 The logic is in [`teslawbc/control.h`](teslawbc/control.h), plain C++ with no ESPHome dependency, and is unit-tested in [`tests/`](tests/).
 
-## Home Assistant entities
+## MQTT interface (Aperta)
 
-| Entity | Type | Notes |
+TeslaWBC talks to the building platform (Aperta) over MQTT. It connects to the broker set in `secrets.yaml` and uses the topic prefix `teslawbc`. All payloads are plain text: numbers as decimals, options as their names.
+
+**Availability:** `teslawbc/status` is `online` while connected and `offline` (retained last will) when not.
+
+### Commands (Aperta publishes)
+
+| Topic | Payload | Notes |
 |---|---|---|
-| Mode | select | Stock, Manual, Pause. Restored after a reboot |
-| Target Current | number | 0 to 32 A; below 6 A pauses. Not restored after a reboot: it starts at 6 A until Home Assistant writes it |
-| Max Conductor Limit | number (config) | Must match the Tesla app. Default 18 A |
-| Max Output Current | number (config) | Must match the Tesla app. Default 16 A |
-| Fallback Target, Fallback Timeout | number (config) | Default 6 A after 5 min |
-| Current, Voltage, Power L1 to L3; Power; Frequency; Energy | sensor | From the DRS-100 |
-| Reported Current, Effective Target | sensor | What the charger is told, and the T in use |
-| State | text sensor | Stock, Charging, Paused, Fallback charging, Fallback paused, Meter fault |
-| Meter OK, Charger Polling, Fallback Active | binary sensor | Health |
-| Charger Poll Interval | sensor | About 190 ms when the charger is polling |
+| `teslawbc/select/mode/command` | `Stock`, `Manual` or `Pause` | Restored after a reboot |
+| `teslawbc/number/target_current/command` | `0` to `32` (A) | Below 6 pauses. Not restored after a reboot: starts at 6 A until Aperta writes it |
+| `teslawbc/heartbeat` | anything | Keeps the fallback from kicking in when nothing else changes |
+| `teslawbc/number/max_conductor_limit/command` | A | Must match the Tesla app. Default 18 |
+| `teslawbc/number/max_output_current/command` | A | Must match the Tesla app. Default 16 |
+| `teslawbc/number/fallback_target/command` | A | Default 6; below 6 means pause |
+| `teslawbc/number/fallback_timeout/command` | minutes | Default 5 |
+| `teslawbc/button/restart/command` | `PRESS` | Reboots the ESP32 |
 
-Solar surplus, schedules and tariffs are Home Assistant automations that set Mode and Target Current. Home Assistant counts as present while it is connected and subscribed to the device. An automation that stops writing does not trigger the fallback, so guard it in Home Assistant if needed.
+**Aperta must send a command or a heartbeat at least once per Fallback Timeout** (default 5 min), for example the target current every minute. If it stops, Manual and Pause switch to the Fallback Target. This also catches a stalled automation, not only a lost connection.
+
+### States (TeslaWBC publishes, retained)
+
+Each control above also reports its value on the same topic ending in `/state`, for example `teslawbc/select/mode/state`.
+
+| Topic | Unit | Notes |
+|---|---|---|
+| `teslawbc/sensor/current_l1/state` (`_l2`, `_l3`) | A | Wallbox phase currents, 5 s average |
+| `teslawbc/sensor/voltage_l1/state` (`_l2`, `_l3`) | V | 10 s average |
+| `teslawbc/sensor/power_l1/state` (`_l2`, `_l3`) | W | 5 s average |
+| `teslawbc/sensor/power/state` | W | Total, every 10 s |
+| `teslawbc/sensor/frequency/state` | Hz | Every 10 s |
+| `teslawbc/sensor/energy/state` | kWh | Import energy counter of the DRS-100 |
+| `teslawbc/sensor/reported_current/state` | A | What the charger is told (R) |
+| `teslawbc/sensor/effective_target/state` | A | The target in use; `nan` when not regulating |
+| `teslawbc/text_sensor/state/state` | | `Stock`, `Charging`, `Paused`, `Fallback charging`, `Fallback paused`, `Meter fault` |
+| `teslawbc/binary_sensor/meter_ok/state` | `ON`/`OFF` | |
+| `teslawbc/binary_sensor/charger_polling/state` | `ON`/`OFF` | The Wall Connector is reading the emulated meter |
+| `teslawbc/binary_sensor/fallback_active/state` | `ON`/`OFF` | |
+| `teslawbc/sensor/charger_poll_interval/state` | ms | About 190 when polling |
+| `teslawbc/sensor/uptime/state`, `teslawbc/text_sensor/firmware/state`, `teslawbc/text_sensor/ip_address/state` | | Diagnostics |
+
+Solar surplus, schedules and tariffs are Aperta logic that sets Mode and Target Current.
+
+Quick test from a PC:
+
+```sh
+mosquitto_sub -h <broker> -t 'teslawbc/#' -v
+mosquitto_pub -h <broker> -t teslawbc/select/mode/command -m Manual
+mosquitto_pub -h <broker> -t teslawbc/number/target_current/command -m 10
+```
 
 ## Building and flashing
 
 Requires ESPHome 2026.10 or newer.
 
 ```sh
-cp secrets.yaml.example secrets.yaml   # then put in a fresh key: openssl rand -base64 32
+cp secrets.yaml.example secrets.yaml   # then set the broker, login and a fresh OTA key
 esphome run teslawbc.yaml              # first flash over micro-USB, later over the network
 ```
 

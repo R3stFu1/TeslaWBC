@@ -7,8 +7,9 @@
 #                    that measures only the wallbox feed.
 #   Bus 2 (charger): ESP32 poses as the Neurio meter the Wall Connector polls.
 #
-# Home Assistant sets the mode (Stock, Manual, Pause) and the target current.
-# The logic lives in teslawbc/control.h and is unit-tested in tests/.
+# Aperta sets the mode (Stock, Manual, Pause) and the target current over
+# MQTT (topics in README.md). The logic lives in teslawbc/control.h and is
+# unit-tested in tests/.
 # =============================================================================
 
 substitutions:
@@ -64,16 +65,31 @@ ethernet:
 logger:
   level: INFO
 
-api:
-  encryption:
-    key: !secret api_encryption_key
-  # Never reboot because Home Assistant is away: the fallback target handles that.
+# Interface to Aperta. Every entity below gets a state topic
+# <prefix>/<type>/<name>/state; controls also get <prefix>/<type>/<name>/command.
+mqtt:
+  broker: !secret mqtt_broker
+  port: 1883
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  topic_prefix: ${device_name}
+  discovery: false            # no Home Assistant discovery messages
+  # <prefix>/status is "online" while connected, "offline" (last will) when not.
+  # Never reboot because the broker is away: the fallback target handles that.
   reboot_timeout: 0s
+  on_message:
+    # Any command, or a plain heartbeat, shows that Aperta is alive.
+    - topic: ${device_name}/+/+/command
+      then:
+        - lambda: id(last_cmd_ms) = millis();
+    - topic: ${device_name}/heartbeat
+      then:
+        - lambda: id(last_cmd_ms) = millis();
 
-# OTA updates use the API encryption key.
 ota:
   - platform: esphome
     encryption:
+      key: !secret ota_encryption_key
 
 # =============================================================================
 # State shared between the meter, the control logic and the Neurio emulation.
@@ -87,7 +103,8 @@ globals:
   - id: last_meter_ms
     type: uint32_t
     initial_value: "0"
-  - id: last_ha_ms
+  # Last command or heartbeat from Aperta
+  - id: last_cmd_ms
     type: uint32_t
     initial_value: "0"
   # Reported current R on CT1 to CT3. Boots at "pause" until the meter answers.
@@ -141,7 +158,7 @@ script:
           auto idx = id(mode_select).active_index();
           in.mode = static_cast<teslawbc::Mode>(idx.has_value() ? idx.value() : 0);
           in.target = id(target_current).state;
-          in.last_ha_ms = id(last_ha_ms);
+          in.last_cmd_ms = id(last_cmd_ms);
 
           teslawbc::Result r = teslawbc::compute(cfg, in);
 
@@ -163,20 +180,10 @@ script:
           }
 
 interval:
-  # Timeouts (meter, Home Assistant) also need checking when no reading arrives.
+  # Timeouts (meter, Aperta) also need checking when no reading arrives.
   - interval: 250ms
     then:
       - script.execute: recompute
-  # Home Assistant counts as present while it is subscribed to our states.
-  # A plain `esphome logs` session does not count.
-  - interval: 1s
-    then:
-      - if:
-          condition:
-            api.connected:
-              state_subscription_only: true
-          then:
-            - lambda: id(last_ha_ms) = millis();
 
 # =============================================================================
 # Bus 1: Crompton DRS-100-3P MOD (Modbus master)
@@ -214,7 +221,7 @@ modbus_controller:
     address: ${meter_address}
     update_interval: 300ms
     max_cmd_retries: 0
-  # Slow: totals for Home Assistant only.
+  # Slow: totals for Aperta only.
   - id: meter_slow
     modbus_id: bus_meter
     address: ${meter_address}
@@ -222,7 +229,7 @@ modbus_controller:
     max_cmd_retries: 1
 
 sensor:
-  # --- Meter, fast block. Filters only affect what Home Assistant sees;
+  # --- Meter, fast block. Filters only affect what Aperta sees;
   #     the control logic reads the raw values. ---
   - platform: modbus_controller
     modbus_controller_id: meter_fast
@@ -441,7 +448,7 @@ text_sensor:
       entity_category: diagnostic
 
 # =============================================================================
-# Controls set by Home Assistant
+# Controls set by Aperta
 # =============================================================================
 select:
   - platform: template
@@ -457,8 +464,8 @@ select:
       - script.execute: recompute
 
 number:
-  # Not restored on purpose: automations may write it often, and flash
-  # should not wear out. After a reboot it starts at 6 A until HA writes it.
+  # Not restored on purpose: Aperta may write it often, and flash should
+  # not wear out. After a reboot it starts at 6 A until Aperta writes it.
   - platform: template
     id: target_current
     name: "Target Current"
@@ -503,7 +510,7 @@ number:
     initial_value: 16
     optimistic: true
     restore_value: true
-  # Used when Home Assistant is silent. Below 6 A means pause.
+  # Used when Aperta is silent. Below 6 A means pause.
   - platform: template
     id: fallback_target
     name: "Fallback Target"

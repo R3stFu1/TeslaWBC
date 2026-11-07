@@ -19,7 +19,7 @@ static int checks = 0;
 
 static bool near(float a, float b) { return std::fabs(a - b) < 1e-4f; }
 
-// A healthy meter reading at t = 10 s, Home Assistant heard from just now.
+// A healthy meter reading at t = 10 s, Aperta heard from just now.
 static Inputs base(float w1, float w2, float w3) {
   Inputs in;
   in.now_ms = 10000;
@@ -28,7 +28,7 @@ static Inputs base(float w1, float w2, float w3) {
   in.current[0] = w1;
   in.current[1] = w2;
   in.current[2] = w3;
-  in.last_ha_ms = 9000;
+  in.last_cmd_ms = 9000;
   return in;
 }
 
@@ -138,7 +138,7 @@ static void test_meter_timeout_pauses() {
   in.mode = Mode::MANUAL;
   in.target = 16.0f;
   in.now_ms = in.last_meter_ms + cfg.meter_timeout_ms + 1;
-  in.last_ha_ms = in.now_ms;
+  in.last_cmd_ms = in.now_ms;
   Result r = compute(cfg, in);
   CHECK(r.state == State::METER_FAULT);
   CHECK(!r.meter_ok);
@@ -159,16 +159,16 @@ static void test_meter_nan_is_fault() {
   CHECK(compute(cfg, in).state == State::METER_FAULT);
 }
 
-static void test_fallback_when_ha_silent() {
+static void test_fallback_when_controller_silent() {
   Settings cfg;  // fallback 6 A after 5 min
   Inputs in = base(12.0f, 12.0f, 12.0f);
   in.mode = Mode::MANUAL;
   in.target = 12.0f;
   in.now_ms = 400000;
   in.last_meter_ms = 399900;
-  in.last_ha_ms = 400000 - cfg.fallback_timeout_ms;  // exactly at the limit: still fine
+  in.last_cmd_ms = 400000 - cfg.fallback_timeout_ms;  // exactly at the limit: still fine
   CHECK(compute(cfg, in).state == State::CHARGING);
-  in.last_ha_ms -= 1;
+  in.last_cmd_ms -= 1;
   Result r = compute(cfg, in);
   CHECK(r.fallback);
   CHECK(r.state == State::FALLBACK_CHARGING);
@@ -180,7 +180,7 @@ static void test_fallback_when_ha_silent() {
   // Fallback target 0 means pause.
   cfg.fallback_target = 0.0f;
   CHECK(compute(cfg, in).state == State::FALLBACK_PAUSED);
-  // Stock ignores Home Assistant entirely.
+  // Stock ignores Aperta entirely.
   in.mode = Mode::STOCK;
   CHECK(compute(cfg, in).state == State::STOCK);
 }
@@ -191,7 +191,7 @@ static void test_millis_wraparound() {
   in.mode = Mode::MANUAL;
   in.target = 8.0f;
   in.last_meter_ms = 0xFFFFFF00u;
-  in.last_ha_ms = 0xFFFFFF00u;
+  in.last_cmd_ms = 0xFFFFFF00u;
   in.now_ms = 0x00000100u;  // 512 ms later, after the wrap
   Result r = compute(cfg, in);
   CHECK(r.meter_ok);
@@ -210,7 +210,7 @@ int main() {
   test_manual_with_idle_car_allows_start();
   test_meter_timeout_pauses();
   test_meter_nan_is_fault();
-  test_fallback_when_ha_silent();
+  test_fallback_when_controller_silent();
   test_millis_wraparound();
   std::printf("%d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;

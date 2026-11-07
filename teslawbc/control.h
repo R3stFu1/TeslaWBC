@@ -33,8 +33,8 @@ enum class State : uint8_t {
   STOCK = 0,
   CHARGING = 1,           // Manual, holding the target
   PAUSED = 2,             // Pause mode, or Manual with a target below the minimum
-  FALLBACK_CHARGING = 3,  // Home Assistant silent: holding the fallback target
-  FALLBACK_PAUSED = 4,    // Home Assistant silent: fallback target is "pause"
+  FALLBACK_CHARGING = 3,  // Aperta silent: holding the fallback target
+  FALLBACK_PAUSED = 4,    // Aperta silent: fallback target is "pause"
   METER_FAULT = 5,        // no valid meter reading: pausing for safety
 };
 
@@ -55,7 +55,7 @@ struct Settings {
   float max_output = 16.0f;       // I_max, must match "Max Output Current" in the Tesla app
   float min_current = 6.0f;       // lowest current a car accepts; below this we pause
   float pause_margin = 2.0f;      // how far above L we report to pause
-  float fallback_target = 6.0f;   // used when Home Assistant is silent; < min_current = pause
+  float fallback_target = 6.0f;   // used when Aperta is silent; < min_current = pause
   uint32_t fallback_timeout_ms = 5u * 60u * 1000u;
   uint32_t meter_timeout_ms = 3000u;
 };
@@ -66,10 +66,10 @@ struct Inputs {
   bool meter_seen = false;
   uint32_t last_meter_ms = 0;
   float current[3] = {NAN, NAN, NAN};
-  // Home Assistant: requested mode and target, and when we last heard from it.
+  // Aperta: requested mode and target, and when it last sent a command or heartbeat.
   Mode mode = Mode::STOCK;
   float target = 6.0f;
-  uint32_t last_ha_ms = 0;
+  uint32_t last_cmd_ms = 0;
 };
 
 struct Result {
@@ -78,7 +78,7 @@ struct Result {
   float max_current = NAN;       // max(W1, W2, W3), NAN on meter fault
   State state = State::METER_FAULT;
   bool meter_ok = false;
-  bool fallback = false;         // true while Home Assistant is considered silent
+  bool fallback = false;         // true while Aperta is considered silent
 };
 
 inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -102,7 +102,7 @@ inline Result compute(const Settings &cfg, const Inputs &in) {
     if (a > w_max) w_max = a;
   }
   r.meter_ok = meter_ok;
-  r.fallback = (uint32_t) (in.now_ms - in.last_ha_ms) > cfg.fallback_timeout_ms;
+  r.fallback = (uint32_t) (in.now_ms - in.last_cmd_ms) > cfg.fallback_timeout_ms;
 
   if (!meter_ok) {
     // Without a measurement we cannot echo the car's current, so we stop it.
@@ -112,7 +112,7 @@ inline Result compute(const Settings &cfg, const Inputs &in) {
   }
   r.max_current = w_max;
 
-  // Stock is the kill switch: honest current, independent of Home Assistant.
+  // Stock is the kill switch: honest current, independent of Aperta.
   if (in.mode == Mode::STOCK) {
     r.state = State::STOCK;
     r.reported = w_max;

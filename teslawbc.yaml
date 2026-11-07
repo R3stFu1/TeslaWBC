@@ -8,7 +8,7 @@
 #   Bus 2 (charger): ESP32 poses as the Neurio meter the Wall Connector polls.
 #
 # Aperta sets the mode (Bypass, Manual, Pause) and the target current over
-# MQTT (topics in README.md). The logic lives in teslawbc/control.h and is
+# MQTT or REST (see README.md). The logic lives in teslawbc/control.h and is
 # unit-tested in tests/.
 # =============================================================================
 
@@ -77,14 +77,19 @@ mqtt:
   # <prefix>/status is "online" while connected, "offline" (last will) when not.
   # Never reboot because the broker is away: the fallback target handles that.
   reboot_timeout: 0s
-  on_message:
-    # Any command, or a plain heartbeat, shows that Aperta is alive.
-    - topic: ${device_name}/+/+/command
-      then:
-        - lambda: id(last_cmd_ms) = millis();
-    - topic: ${device_name}/heartbeat
-      then:
-        - lambda: id(last_cmd_ms) = millis();
+
+# Second interface to Aperta: REST and a status page on http://<ip>/
+# GET /<type>/<Entity Name> reads, POST /<type>/<Entity Name>/<action> writes,
+# GET /events streams every change (Server-Sent Events). See README.md.
+web_server:
+  port: 80
+  version: 3
+  local: true    # serve the page from the ESP32, no internet needed
+  ota: false     # firmware updates only through the encrypted ESPHome OTA
+  auth:
+    type: digest   # switch to basic if Aperta cannot do digest
+    username: !secret web_username
+    password: !secret web_password
 
 ota:
   - platform: esphome
@@ -105,6 +110,7 @@ globals:
     initial_value: "0"
   # Last command or heartbeat from Aperta
   - id: last_cmd_ms
+    restore_value: no
     type: uint32_t
     initial_value: "0"
   # Reported current R on CT1 to CT3. Boots at "pause" until the meter answers.
@@ -461,6 +467,7 @@ select:
     optimistic: true
     restore_value: true
     on_value:
+      - lambda: id(last_cmd_ms) = millis();
       - script.execute: recompute
 
 number:
@@ -479,6 +486,7 @@ number:
     initial_value: 6
     optimistic: true
     on_value:
+      - lambda: id(last_cmd_ms) = millis();
       - script.execute: recompute
   # Must equal "Max Conductor Limit" set in the Tesla app.
   - platform: template
@@ -540,6 +548,13 @@ number:
     restore_value: true
 
 button:
+  # Aperta presses this (or writes Mode or Target Current) at least once per
+  # Fallback Timeout to show it is alive.
+  - platform: template
+    name: "Heartbeat"
+    icon: mdi:heart-pulse
+    on_press:
+      - lambda: id(last_cmd_ms) = millis();
   - platform: restart
     name: "Restart"
     entity_category: config

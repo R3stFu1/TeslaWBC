@@ -2,7 +2,7 @@
 
 Local current control for a **Tesla Wall Connector Gen 3**, without the Tesla cloud.
 
-An ESP32 reads a dedicated energy meter on the wallbox feed and poses as the Neurio meter that the Wall Connector polls over RS-485. By choosing which current it reports, it makes the charger hold a target current between 6 and 16 A (three-phase), or pause. The ESP32 has no logic of its own. The building platform (Aperta) sets the mode and the target over MQTT, and the ESP32 falls back to a configured target if Aperta goes silent.
+An ESP32 reads a dedicated energy meter on the wallbox feed and poses as the Neurio meter that the Wall Connector polls over RS-485. By choosing which current it reports, it makes the charger hold a target current between 6 and 16 A (three-phase), or pause. The ESP32 has no logic of its own. The building platform (Aperta) sets the mode and the target over MQTT or REST, and the ESP32 falls back to a configured target if Aperta goes silent.
 
 ## Hardware
 
@@ -55,56 +55,46 @@ R follows the car's current 1:1 and is never below what the wallbox draws. Both 
 
 The logic is in [`teslawbc/control.h`](teslawbc/control.h), plain C++ with no ESPHome dependency, and is unit-tested in [`tests/`](tests/).
 
-## MQTT interface (Aperta)
+## Interface to Aperta: MQTT and REST
 
-TeslaWBC talks to the building platform (Aperta) over MQTT. It connects to the broker set in `secrets.yaml` and uses the topic prefix `teslawbc`. All payloads are plain text: numbers as decimals, options as their names.
+TeslaWBC offers the same functions over two interfaces, and Aperta can use either or both.
 
-**Availability:** `teslawbc/status` is `online` while connected and `offline` (retained last will) when not.
+- **MQTT:** connects to the broker in `secrets.yaml` with the topic prefix `teslawbc`. TeslaWBC publishes every change as it happens, retained. Aperta sends commands to `…/command` topics. Payloads are plain text.
+- **REST:** HTTP on port 80 of the ESP32, protected with digest authentication (login in `secrets.yaml`). URLs use the entity name, URL-encoded (`%20` for a space). `GET` returns JSON such as `{"id":"sensor/Current L1","value":15.92,"state":"15.92 A"}`. `POST` returns 200 on success. A browser on `http://<ip>/` shows a status page with all values and controls.
 
-### Commands (Aperta publishes)
-
-| Topic | Payload | Notes |
+| Function | MQTT | REST |
 |---|---|---|
-| `teslawbc/select/mode/command` | `Bypass`, `Manual` or `Pause` | Restored after a reboot |
-| `teslawbc/number/target_current/command` | `0` to `32` (A) | Below 6 pauses. Not restored after a reboot: starts at 6 A until Aperta writes it |
-| `teslawbc/heartbeat` | anything | Keeps the fallback from kicking in when nothing else changes |
-| `teslawbc/number/max_conductor_limit/command` | A | Must match the Tesla app. Default 18 |
-| `teslawbc/number/max_output_current/command` | A | Must match the Tesla app. Default 16 |
-| `teslawbc/number/fallback_target/command` | A | Default 6; below 6 means pause |
-| `teslawbc/number/fallback_timeout/command` | minutes | Default 5 |
-| `teslawbc/button/restart/command` | `PRESS` | Reboots the ESP32 |
+| **Set mode** | publish `Bypass`, `Manual` or `Pause` to `teslawbc/select/mode/command` | `POST /select/Mode/set?option=Manual` |
+| **Set target current** (0 to 32 A; below 6 pauses) | publish `10` to `teslawbc/number/target_current/command` | `POST /number/Target%20Current/set?value=10` |
+| **Heartbeat** (keeps the fallback away) | publish `PRESS` to `teslawbc/button/heartbeat/command` | `POST /button/Heartbeat/press` |
+| Read mode and target | `teslawbc/select/mode/state`, `teslawbc/number/target_current/state` | `GET /select/Mode`, `GET /number/Target%20Current` |
+| **Controller state** (`Bypass`, `Charging`, `Paused`, `Fallback charging`, `Fallback paused`, `Meter fault`) | `teslawbc/text_sensor/state/state` | `GET /text_sensor/State` |
+| Current per phase (A, 5 s average) | `teslawbc/sensor/current_l1/state` (`_l2`, `_l3`) | `GET /sensor/Current%20L1` (`L2`, `L3`) |
+| Voltage per phase (V, 10 s average) | `teslawbc/sensor/voltage_l1/state` (`_l2`, `_l3`) | `GET /sensor/Voltage%20L1` (`L2`, `L3`) |
+| Power per phase (W, 5 s average) | `teslawbc/sensor/power_l1/state` (`_l2`, `_l3`) | `GET /sensor/Power%20L1` (`L2`, `L3`) |
+| Total power (W), frequency (Hz) | `teslawbc/sensor/power/state`, `teslawbc/sensor/frequency/state` | `GET /sensor/Power`, `GET /sensor/Frequency` |
+| Energy counter (kWh) | `teslawbc/sensor/energy/state` | `GET /sensor/Energy` |
+| Current reported to the charger (R) | `teslawbc/sensor/reported_current/state` | `GET /sensor/Reported%20Current` |
+| Target in use (A, `nan` when not regulating) | `teslawbc/sensor/effective_target/state` | `GET /sensor/Effective%20Target` |
+| Health flags (`ON`/`OFF`) | `teslawbc/binary_sensor/meter_ok/state`, `…/charger_polling/state`, `…/fallback_active/state` | `GET /binary_sensor/Meter%20OK`, `/binary_sensor/Charger%20Polling`, `/binary_sensor/Fallback%20Active` |
+| Charger poll interval (ms, about 190) | `teslawbc/sensor/charger_poll_interval/state` | `GET /sensor/Charger%20Poll%20Interval` |
+| **Device online?** | `teslawbc/status` = `online`, or `offline` via the broker's last will | no answer to a request (Aperta polls) |
+| **Live updates** | subscribe to `teslawbc/#` | `GET /events` (Server-Sent Events stream) |
+| Settings: Max Conductor Limit, Max Output Current, Fallback Target, Fallback Timeout | `teslawbc/number/max_conductor_limit/command` (and `max_output_current`, `fallback_target`, `fallback_timeout`), values on `…/state` | `POST /number/Max%20Conductor%20Limit/set?value=18` (and the others), read with `GET` |
+| Restart the ESP32 | publish `PRESS` to `teslawbc/button/restart/command` | `POST /button/Restart/press` |
+| Diagnostics: uptime, firmware, IP address | `teslawbc/sensor/uptime/state`, `teslawbc/text_sensor/firmware/state`, `teslawbc/text_sensor/ip_address/state` | `GET /sensor/Uptime`, `/text_sensor/Firmware`, `/text_sensor/IP%20Address` |
 
-**Aperta must send a command or a heartbeat at least once per Fallback Timeout** (default 5 min), for example the target current every minute. If it stops, Manual and Pause switch to the Fallback Target. This also catches a stalled automation, not only a lost connection.
+**Fallback:** Aperta must set the mode or target, or press Heartbeat, at least once per Fallback Timeout (default 5 min), over either interface. Writing the target every minute is enough. If nothing arrives, Manual and Pause switch to the Fallback Target. This also catches a stalled automation, not only a lost connection.
 
-### States (TeslaWBC publishes, retained)
-
-Each control above also reports its value on the same topic ending in `/state`, for example `teslawbc/select/mode/state`.
-
-| Topic | Unit | Notes |
-|---|---|---|
-| `teslawbc/sensor/current_l1/state` (`_l2`, `_l3`) | A | Wallbox phase currents, 5 s average |
-| `teslawbc/sensor/voltage_l1/state` (`_l2`, `_l3`) | V | 10 s average |
-| `teslawbc/sensor/power_l1/state` (`_l2`, `_l3`) | W | 5 s average |
-| `teslawbc/sensor/power/state` | W | Total, every 10 s |
-| `teslawbc/sensor/frequency/state` | Hz | Every 10 s |
-| `teslawbc/sensor/energy/state` | kWh | Import energy counter of the DRS-100 |
-| `teslawbc/sensor/reported_current/state` | A | What the charger is told (R) |
-| `teslawbc/sensor/effective_target/state` | A | The target in use; `nan` when not regulating |
-| `teslawbc/text_sensor/state/state` | | `Bypass`, `Charging`, `Paused`, `Fallback charging`, `Fallback paused`, `Meter fault` |
-| `teslawbc/binary_sensor/meter_ok/state` | `ON`/`OFF` | |
-| `teslawbc/binary_sensor/charger_polling/state` | `ON`/`OFF` | The Wall Connector is reading the emulated meter |
-| `teslawbc/binary_sensor/fallback_active/state` | `ON`/`OFF` | |
-| `teslawbc/sensor/charger_poll_interval/state` | ms | About 190 when polling |
-| `teslawbc/sensor/uptime/state`, `teslawbc/text_sensor/firmware/state`, `teslawbc/text_sensor/ip_address/state` | | Diagnostics |
-
-Solar surplus, schedules and tariffs are Aperta logic that sets Mode and Target Current.
+Mode is restored after a reboot. Target Current is not, to spare the flash: it starts at 6 A until Aperta writes it.
 
 Quick test from a PC:
 
 ```sh
 mosquitto_sub -h <broker> -t 'teslawbc/#' -v
-mosquitto_pub -h <broker> -t teslawbc/select/mode/command -m Manual
 mosquitto_pub -h <broker> -t teslawbc/number/target_current/command -m 10
+curl --digest -u teslawbc:<password> http://<ip>/sensor/Current%20L1
+curl --digest -u teslawbc:<password> -X POST 'http://<ip>/select/Mode/set?option=Manual'
 ```
 
 ## Building and flashing

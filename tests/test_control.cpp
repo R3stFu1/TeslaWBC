@@ -109,6 +109,19 @@ static void test_target_below_minimum_pauses() {
   CHECK(compute(cfg, in).state == State::PAUSED);
 }
 
+static void test_min_current_configurable() {
+  Settings cfg;
+  cfg.min_current = 5.0f;
+  Inputs in = base(5.0f, 5.0f, 5.0f);
+  in.mode = Mode::MANUAL;
+  in.target = 5.0f;
+  Result r = compute(cfg, in);
+  CHECK(r.state == State::CHARGING);
+  CHECK(near(r.effective_target, 5.0f));
+  in.target = 4.0f;
+  CHECK(compute(cfg, in).state == State::PAUSED);
+}
+
 static void test_pause_mode() {
   Settings cfg;
   Inputs in = base(0.0f, 0.0f, 0.0f);
@@ -206,6 +219,7 @@ int main() {
   test_reported_never_below_wallbox_current();
   test_target_is_clamped();
   test_target_below_minimum_pauses();
+  test_min_current_configurable();
   test_pause_mode();
   test_manual_with_idle_car_allows_start();
   test_meter_timeout_pauses();

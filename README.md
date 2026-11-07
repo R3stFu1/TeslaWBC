@@ -43,7 +43,7 @@ R follows the car's current 1:1 and is never below what the wallbox draws. Both 
 | Mode | Reported R | Charger behaviour |
 |---|---|---|
 | Bypass | max(W) | Charges as if TeslaWBC were not there |
-| Manual | max(W) + (L - T) | Holds T, clamped to 6 A up to Max Output Current. Below 6 A it pauses |
+| Manual | max(W) + (L - T) | Holds T, clamped to Min Current (default 6 A) up to Max Output Current. Below Min Current it pauses |
 | Pause | max(L, max(W)) + 2 A | Opens the contactor, resumes when the mode changes |
 
 ### Fail-safes
@@ -65,7 +65,7 @@ TeslaWBC offers the same functions over two interfaces, and Aperta can use eithe
 | Function | MQTT | REST |
 |---|---|---|
 | **Set mode** | publish `Bypass`, `Manual` or `Pause` to `teslawbc/select/mode/command` | `POST /select/Mode/set?option=Manual` |
-| **Set target current** (0 to 32 A; below 6 pauses) | publish `10` to `teslawbc/number/target_current/command` | `POST /number/Target%20Current/set?value=10` |
+| **Set target current** (0 to 32 A; below Min Current pauses) | publish `10` to `teslawbc/number/target_current/command` | `POST /number/Target%20Current/set?value=10` |
 | **Heartbeat** (keeps the fallback away) | publish `PRESS` to `teslawbc/button/heartbeat/command` | `POST /button/Heartbeat/press` |
 | Read mode and target | `teslawbc/select/mode/state`, `teslawbc/number/target_current/state` | `GET /select/Mode`, `GET /number/Target%20Current` |
 | **Controller state** (`Bypass`, `Charging`, `Paused`, `Fallback charging`, `Fallback paused`, `Meter fault`) | `teslawbc/text_sensor/state/state` | `GET /text_sensor/State` |
@@ -80,7 +80,7 @@ TeslaWBC offers the same functions over two interfaces, and Aperta can use eithe
 | Charger poll interval (ms, about 190) | `teslawbc/sensor/charger_poll_interval/state` | `GET /sensor/Charger%20Poll%20Interval` |
 | **Device online?** | `teslawbc/status` = `online`, or `offline` via the broker's last will | no answer to a request (Aperta polls) |
 | **Live updates** | subscribe to `teslawbc/#` | `GET /events` (Server-Sent Events stream) |
-| Settings: Max Conductor Limit, Max Output Current, Fallback Target, Fallback Timeout | `teslawbc/number/max_conductor_limit/command` (and `max_output_current`, `fallback_target`, `fallback_timeout`), values on `…/state` | `POST /number/Max%20Conductor%20Limit/set?value=18` (and the others), read with `GET` |
+| Settings: Max Conductor Limit, Max Output Current, Min Current, Fallback Target, Fallback Timeout | `teslawbc/number/max_conductor_limit/command` (and `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`), values on `…/state` | `POST /number/Max%20Conductor%20Limit/set?value=18` (and the others), read with `GET` |
 | Restart the ESP32 | publish `PRESS` to `teslawbc/button/restart/command` | `POST /button/Restart/press` |
 | Diagnostics: uptime, firmware, IP address | `teslawbc/sensor/uptime/state`, `teslawbc/text_sensor/firmware/state`, `teslawbc/text_sensor/ip_address/state` | `GET /sensor/Uptime`, `/text_sensor/Firmware`, `/text_sensor/IP%20Address` |
 
@@ -116,7 +116,8 @@ Run the unit tests with `make -C tests`.
 2. In the Tesla app (More, "Tesla device settings"), add the energy meter: CT1 to CT3 = conductor, CT4 = none. Lower Max Output Current first, then set **Max Conductor Limit = 18 A**, and **Max Output Current = 16 A**. Enter the same values in TeslaWBC.
 3. Check that *Charger Polling* is on and the poll interval is about 190 ms. If the charger does not poll, swap A and B, then try `charger_baud: "9600"`.
 4. Leave it a day in **Bypass** mode, then test Manual at 16, 10 and 6 A, then Pause and resume.
-5. Block the Wall Connector's internet access at the router to freeze its firmware (tested on 26.34).
+5. Optional: the Tesla app allows 5 A, but the Wall Connector's pilot signal (IEC 61851) starts at 6 A. To try 5 A, set Min Current to 5 and Target Current to 5 while charging. If the car settles at 5 A, keep it. If it stays at 6 A and the charger pauses after about 20 s, set Min Current back to 6.
+6. Block the Wall Connector's internet access at the router to freeze its firmware (tested on 26.34).
 
 ## Credits
 

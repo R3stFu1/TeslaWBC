@@ -148,6 +148,7 @@ script:
           teslawbc::Settings cfg;
           cfg.conductor_limit = id(conductor_limit).state;
           cfg.max_output = id(max_output_current).state;
+          cfg.min_current = id(min_current).state;
           cfg.pause_margin = ${pause_margin_a};
           cfg.fallback_target = id(fallback_target).state;
           cfg.fallback_timeout_ms = (uint32_t) (id(fallback_timeout).state * 60000.0f);
@@ -516,6 +517,23 @@ number:
     max_value: 48
     step: 1
     initial_value: 16
+    optimistic: true
+    restore_value: true
+  # Lowest target that still charges; below it TeslaWBC pauses. The Wall
+  # Connector's pilot signal (IEC 61851) starts at 6 A, so 5 A only holds if
+  # the car accepts it. Lower it only after testing (see README).
+  - platform: template
+    id: min_current
+    name: "Min Current"
+    icon: mdi:current-ac
+    entity_category: config
+    unit_of_measurement: A
+    device_class: current
+    mode: box
+    min_value: 5
+    max_value: 16
+    step: 1
+    initial_value: 6
     optimistic: true
     restore_value: true
   # Used when Aperta is silent. Below 6 A means pause.

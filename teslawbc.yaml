@@ -1,0 +1,641 @@
+# =============================================================================
+# TeslaWBC: local current control for a Tesla Wall Connector Gen 3
+#
+# Hardware: Olimex ESP32-POE-ISO-16MB-IND on PoE LAN, two Waveshare
+# TTL TO RS485 (B) modules (automatic direction control, no DE/RE pin).
+#   Bus 1 (meter):   ESP32 is Modbus master to a Crompton DRS-100-3P MOD
+#                    that measures only the wallbox feed.
+#   Bus 2 (charger): ESP32 poses as the Neurio meter the Wall Connector polls.
+#
+# Home Assistant sets the mode (Stock, Manual, Pause) and the target current.
+# The logic lives in teslawbc/control.h and is unit-tested in tests/.
+# =============================================================================
+
+substitutions:
+  device_name: teslawbc
+  friendly_name: TeslaWBC
+
+  # Bus 1, DRS-100 meter (UEXT UART pins of the Olimex board)
+  meter_tx_pin: GPIO4
+  meter_rx_pin: GPIO36
+  meter_baud: "9600"
+  meter_address: "1"
+
+  # Bus 2, Wall Connector
+  charger_tx_pin: GPIO32
+  charger_rx_pin: GPIO33
+  # Both reference projects run the charger bus at 115200. If the charger
+  # never polls, try 9600 (see README, commissioning).
+  charger_baud: "115200"
+
+  # Fixed safety parameters
+  pause_margin_a: "2.0"     # pause = report L + this
+  meter_timeout_ms: "3000"  # no valid meter reading for this long = meter fault
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.10.0
+  project:
+    name: r3stfu1.teslawbc
+    version: "0.1.0"
+  includes:
+    - teslawbc/control.h
+
+esp32:
+  board: esp32-poe-iso
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+# Olimex ESP32-POE-ISO wired network (LAN8720)
+ethernet:
+  type: LAN8720
+  mdc_pin: GPIO23
+  mdio_pin: GPIO18
+  clk:
+    mode: CLK_OUT
+    pin: GPIO17
+  phy_addr: 0
+  power_pin:
+    number: GPIO12
+    ignore_strapping_warning: true  # PHY power switch on the Olimex board
+
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  # Never reboot because Home Assistant is away: the fallback target handles that.
+  reboot_timeout: 0s
+
+# OTA updates use the API encryption key.
+ota:
+  - platform: esphome
+    encryption:
+
+# =============================================================================
+# State shared between the meter, the control logic and the Neurio emulation.
+# The Modbus server lambdas only return these values: the reply to the
+# charger has to leave quickly, so nothing is computed there.
+# =============================================================================
+globals:
+  - id: meter_seen
+    type: bool
+    initial_value: "false"
+  - id: last_meter_ms
+    type: uint32_t
+    initial_value: "0"
+  - id: last_ha_ms
+    type: uint32_t
+    initial_value: "0"
+  # Reported current R on CT1 to CT3. Boots at "pause" until the meter answers.
+  - id: reported_a
+    type: float
+    initial_value: "20.0"
+  - id: reported_w
+    type: float
+    initial_value: "0.0"
+  - id: effective_target_a
+    type: float
+    initial_value: "NAN"
+  - id: ctl_state
+    type: uint8_t
+    initial_value: "5"  # METER_FAULT
+  - id: ctl_meter_ok
+    type: bool
+    initial_value: "false"
+  - id: ctl_fallback
+    type: bool
+    initial_value: "false"
+  # Charger polling diagnostics
+  - id: last_poll_ms
+    type: uint32_t
+    initial_value: "0"
+  - id: poll_interval_ms
+    type: float
+    initial_value: "NAN"
+
+script:
+  - id: recompute
+    mode: single
+    then:
+      - lambda: |-
+          teslawbc::Settings cfg;
+          cfg.conductor_limit = id(conductor_limit).state;
+          cfg.max_output = id(max_output_current).state;
+          cfg.pause_margin = ${pause_margin_a};
+          cfg.fallback_target = id(fallback_target).state;
+          cfg.fallback_timeout_ms = (uint32_t) (id(fallback_timeout).state * 60000.0f);
+          cfg.meter_timeout_ms = ${meter_timeout_ms};
+
+          teslawbc::Inputs in;
+          in.now_ms = millis();
+          in.meter_seen = id(meter_seen);
+          in.last_meter_ms = id(last_meter_ms);
+          // Raw (unfiltered) values: control must follow the car without delay.
+          in.current[0] = id(meter_i1).get_raw_state();
+          in.current[1] = id(meter_i2).get_raw_state();
+          in.current[2] = id(meter_i3).get_raw_state();
+          auto idx = id(mode_select).active_index();
+          in.mode = static_cast<teslawbc::Mode>(idx.has_value() ? idx.value() : 0);
+          in.target = id(target_current).state;
+          in.last_ha_ms = id(last_ha_ms);
+
+          teslawbc::Result r = teslawbc::compute(cfg, in);
+
+          // Power per CT for the Neurio power registers: R times phase voltage.
+          float v[3] = {id(meter_v1).get_raw_state(), id(meter_v2).get_raw_state(),
+                        id(meter_v3).get_raw_state()};
+          float p = 0.0f;
+          for (float vi : v) p += r.reported * ((std::isnan(vi) || vi < 100.0f) ? 230.0f : vi);
+
+          id(reported_a) = r.reported;
+          id(reported_w) = p / 3.0f;
+          id(effective_target_a) = r.effective_target;
+          id(ctl_meter_ok) = r.meter_ok;
+          id(ctl_fallback) = r.fallback;
+          if (static_cast<uint8_t>(r.state) != id(ctl_state)) {
+            id(ctl_state) = static_cast<uint8_t>(r.state);
+            ESP_LOGI("teslawbc", "State: %s, reported %.2f A", teslawbc::state_name(r.state), r.reported);
+            id(state_text).publish_state(teslawbc::state_name(r.state));
+          }
+
+interval:
+  # Timeouts (meter, Home Assistant) also need checking when no reading arrives.
+  - interval: 250ms
+    then:
+      - script.execute: recompute
+  # Home Assistant counts as present while it is subscribed to our states.
+  # A plain `esphome logs` session does not count.
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            api.connected:
+              state_subscription_only: true
+          then:
+            - lambda: id(last_ha_ms) = millis();
+
+# =============================================================================
+# Bus 1: Crompton DRS-100-3P MOD (Modbus master)
+# =============================================================================
+uart:
+  - id: uart_meter
+    tx_pin: ${meter_tx_pin}
+    rx_pin: ${meter_rx_pin}
+    baud_rate: ${meter_baud}
+    data_bits: 8
+    parity: NONE
+    stop_bits: 1
+  - id: uart_charger
+    tx_pin: ${charger_tx_pin}
+    rx_pin: ${charger_rx_pin}
+    baud_rate: ${charger_baud}
+    data_bits: 8
+    parity: NONE
+    stop_bits: 1
+
+modbus:
+  - id: bus_meter
+    uart_id: uart_meter
+    role: client
+    send_wait_time: 500ms  # DRS-100 comms guide: 500 ms response timeout
+  - id: bus_charger
+    uart_id: uart_charger
+    role: server
+
+modbus_controller:
+  # Fast: voltages, currents and powers of all phases in one request
+  # (function code 04, 0x0000, 18 registers).
+  - id: meter_fast
+    modbus_id: bus_meter
+    address: ${meter_address}
+    update_interval: 300ms
+    max_cmd_retries: 0
+  # Slow: totals for Home Assistant only.
+  - id: meter_slow
+    modbus_id: bus_meter
+    address: ${meter_address}
+    update_interval: 10s
+    max_cmd_retries: 1
+
+sensor:
+  # --- Meter, fast block. Filters only affect what Home Assistant sees;
+  #     the control logic reads the raw values. ---
+  - platform: modbus_controller
+    modbus_controller_id: meter_fast
+    id: meter_v1
+    name: "Voltage L1"
+    register_type: read
+    address: 0x00
+    value_type: FP32
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters: [throttle_average: 10s]
+  - platform: modbus_controller
+    modbus_controller_id: meter_fast
+    id: meter_v2
+    name: "Voltage L2"
+    register_type: read
+    address: 0x02
+    value_type: FP32
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters: [throttle_average: 10s]
+  - platform: modbus_controller
+    modbus_controller_id: meter_fast
+    id: meter_v3
+    name: "Voltage L3"
+    register_type: read
+    address: 0x04
+    value_type: FP32
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters: [throttle_average: 10s]
+  - platform: modbus_controller
+    modbus_controller_id: meter_fast
+    id: meter_i1
+    name: "Current L1"
+    register_type: read
+    address: 0x06
+    value_type: FP32
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    filters: [throttle_average: 5s]
+  - platform: modbus_controller
+    modbus_controller_id: meter_fast
+    id: meter_i2
+    name: "Current L2"
+    register_type: read
+    address: 0x08
+    value_type: FP32
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    filters: [throttle_average: 5s]
+  - platform: modbus_controller
+    modbus_controller_id: meter_fast
+    id: meter_i3
+    name: "Current L3"
+    register_type: read
+    address: 0x0A
+    value_type: FP32
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    filters: [throttle_average: 5s]
+  - platform: modbus_controller
+    modbus_controller_id: meter_fast
+    id: meter_p1
+    name: "Power L1"
+    register_type: read
+    address: 0x0C
+    value_type: FP32
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    filters: [throttle_average: 5s]
+  - platform: modbus_controller
+    modbus_controller_id: meter_fast
+    id: meter_p2
+    name: "Power L2"
+    register_type: read
+    address: 0x0E
+    value_type: FP32
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    filters: [throttle_average: 5s]
+  # Last register of the block: its raw value marks a complete, fresh reading.
+  - platform: modbus_controller
+    modbus_controller_id: meter_fast
+    id: meter_p3
+    name: "Power L3"
+    register_type: read
+    address: 0x10
+    value_type: FP32
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+    filters: [throttle_average: 5s]
+    on_raw_value:
+      then:
+        - lambda: |-
+            id(meter_seen) = true;
+            id(last_meter_ms) = millis();
+        - script.execute: recompute
+
+  # --- Meter, slow block ---
+  - platform: modbus_controller
+    modbus_controller_id: meter_slow
+    id: meter_total_power
+    name: "Power"
+    register_type: read
+    address: 0x34
+    value_type: FP32
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+  - platform: modbus_controller
+    modbus_controller_id: meter_slow
+    id: meter_frequency
+    name: "Frequency"
+    register_type: read
+    address: 0x46
+    value_type: FP32
+    unit_of_measurement: Hz
+    device_class: frequency
+    state_class: measurement
+    accuracy_decimals: 2
+  - platform: modbus_controller
+    modbus_controller_id: meter_slow
+    id: meter_import_energy
+    name: "Energy"
+    register_type: read
+    address: 0x48
+    value_type: FP32
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 2
+
+  # --- Controller ---
+  - platform: template
+    name: "Reported Current"
+    icon: mdi:current-ac
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 2
+    update_interval: 5s
+    lambda: return id(reported_a);
+  - platform: template
+    name: "Effective Target"
+    icon: mdi:target
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: 5s
+    lambda: return id(effective_target_a);
+  - platform: template
+    name: "Charger Poll Interval"
+    icon: mdi:timer-outline
+    unit_of_measurement: ms
+    state_class: measurement
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: 10s
+    lambda: return id(poll_interval_ms);
+  - platform: uptime
+    name: "Uptime"
+    entity_category: diagnostic
+
+binary_sensor:
+  - platform: template
+    name: "Meter OK"
+    device_class: connectivity
+    entity_category: diagnostic
+    lambda: return id(ctl_meter_ok);
+  - platform: template
+    name: "Charger Polling"
+    device_class: connectivity
+    entity_category: diagnostic
+    lambda: |-
+      return id(last_poll_ms) != 0 && (millis() - id(last_poll_ms)) < 2000;
+  - platform: template
+    name: "Fallback Active"
+    device_class: problem
+    lambda: return id(ctl_fallback);
+  - platform: status
+    name: "Status"
+
+text_sensor:
+  - platform: template
+    id: state_text
+    name: "State"
+    icon: mdi:ev-station
+    update_interval: never
+  - platform: version
+    name: "Firmware"
+    entity_category: diagnostic
+  - platform: ethernet_info
+    ip_address:
+      name: "IP Address"
+      entity_category: diagnostic
+
+# =============================================================================
+# Controls set by Home Assistant
+# =============================================================================
+select:
+  - platform: template
+    id: mode_select
+    name: "Mode"
+    icon: mdi:ev-plug-type2
+    # Order matters: index 0, 1, 2 = teslawbc::Mode STOCK, MANUAL, PAUSE.
+    options: [Stock, Manual, Pause]
+    initial_option: Stock
+    optimistic: true
+    restore_value: true
+    on_value:
+      - script.execute: recompute
+
+number:
+  # Not restored on purpose: automations may write it often, and flash
+  # should not wear out. After a reboot it starts at 6 A until HA writes it.
+  - platform: template
+    id: target_current
+    name: "Target Current"
+    icon: mdi:current-ac
+    unit_of_measurement: A
+    device_class: current
+    mode: box
+    min_value: 0
+    max_value: 32
+    step: 1
+    initial_value: 6
+    optimistic: true
+    on_value:
+      - script.execute: recompute
+  # Must equal "Max Conductor Limit" set in the Tesla app.
+  - platform: template
+    id: conductor_limit
+    name: "Max Conductor Limit"
+    icon: mdi:cable-data
+    entity_category: config
+    unit_of_measurement: A
+    device_class: current
+    mode: box
+    min_value: 6
+    max_value: 48
+    step: 0.5
+    initial_value: 18
+    optimistic: true
+    restore_value: true
+  # Must equal "Max Output Current" set in the Tesla app.
+  - platform: template
+    id: max_output_current
+    name: "Max Output Current"
+    icon: mdi:ev-station
+    entity_category: config
+    unit_of_measurement: A
+    device_class: current
+    mode: box
+    min_value: 6
+    max_value: 48
+    step: 1
+    initial_value: 16
+    optimistic: true
+    restore_value: true
+  # Used when Home Assistant is silent. Below 6 A means pause.
+  - platform: template
+    id: fallback_target
+    name: "Fallback Target"
+    icon: mdi:shield-car
+    entity_category: config
+    unit_of_measurement: A
+    device_class: current
+    mode: box
+    min_value: 0
+    max_value: 32
+    step: 1
+    initial_value: 6
+    optimistic: true
+    restore_value: true
+  - platform: template
+    id: fallback_timeout
+    name: "Fallback Timeout"
+    icon: mdi:timer-alert-outline
+    entity_category: config
+    unit_of_measurement: min
+    mode: box
+    min_value: 1
+    max_value: 60
+    step: 1
+    initial_value: 5
+    optimistic: true
+    restore_value: true
+
+button:
+  - platform: restart
+    name: "Restart"
+    entity_category: config
+
+# =============================================================================
+# Bus 2: Neurio meter emulation (Modbus server, address 1)
+# The Wall Connector polls about every 190 ms. Register map from the
+# community reverse engineering (LucaTNT gist), identical to
+# PVi1/esphome-twc-control and zany92/tesla-loadpilot.
+# =============================================================================
+modbus_server:
+  - modbus_id: bus_charger
+    address: 1
+    registers:
+      # --- Identification block (fixed) ---
+      # Serial "0x000471 4B056861"
+      - { address: 1, value_type: U_WORD, read_lambda: "return 0x3078;" }
+      - { address: 2, value_type: U_WORD, read_lambda: "return 0x3030;" }
+      - { address: 3, value_type: U_WORD, read_lambda: "return 0x3030;" }
+      - { address: 4, value_type: U_WORD, read_lambda: "return 0x3034;" }
+      - { address: 5, value_type: U_WORD, read_lambda: "return 0x3731;" }
+      - { address: 6, value_type: U_WORD, read_lambda: "return 0x3442;" }
+      - { address: 7, value_type: U_WORD, read_lambda: "return 0x3035;" }
+      - { address: 8, value_type: U_WORD, read_lambda: "return 0x3638;" }
+      - { address: 9, value_type: U_WORD, read_lambda: "return 0x3631;" }
+      - { address: 10, value_type: U_WORD, read_lambda: "return 0x0000;" }
+      # Firmware "1.6.1-Tesla"
+      - { address: 11, value_type: U_WORD, read_lambda: "return 0x312E;" }
+      - { address: 12, value_type: U_WORD, read_lambda: "return 0x362E;" }
+      - { address: 13, value_type: U_WORD, read_lambda: "return 0x312D;" }
+      - { address: 14, value_type: U_WORD, read_lambda: "return 0x5465;" }
+      - { address: 15, value_type: U_WORD, read_lambda: "return 0x736C;" }
+      - { address: 16, value_type: U_WORD, read_lambda: "return 0x6100;" }
+      - { address: 17, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      - { address: 18, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      - { address: 19, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      - { address: 20, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      # Model "012.00020A.H"
+      - { address: 21, value_type: U_WORD, read_lambda: "return 0x3031;" }
+      - { address: 22, value_type: U_WORD, read_lambda: "return 0x322E;" }
+      - { address: 23, value_type: U_WORD, read_lambda: "return 0x3030;" }
+      - { address: 24, value_type: U_WORD, read_lambda: "return 0x3032;" }
+      - { address: 25, value_type: U_WORD, read_lambda: "return 0x3041;" }
+      - { address: 26, value_type: U_WORD, read_lambda: "return 0x2E48;" }
+      - { address: 27, value_type: U_WORD, read_lambda: "return 0x0000;" }
+      - { address: 28, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      # Meter number "90954"
+      - { address: 29, value_type: U_WORD, read_lambda: "return 0x3930;" }
+      - { address: 30, value_type: U_WORD, read_lambda: "return 0x3935;" }
+      - { address: 31, value_type: U_WORD, read_lambda: "return 0x3400;" }
+      # Model "VAH4810AB0231"
+      - { address: 32, value_type: U_WORD, read_lambda: "return 0x5641;" }
+      - { address: 33, value_type: U_WORD, read_lambda: "return 0x4834;" }
+      - { address: 34, value_type: U_WORD, read_lambda: "return 0x3831;" }
+      - { address: 35, value_type: U_WORD, read_lambda: "return 0x3041;" }
+      - { address: 36, value_type: U_WORD, read_lambda: "return 0x4230;" }
+      - { address: 37, value_type: U_WORD, read_lambda: "return 0x3233;" }
+      - { address: 38, value_type: U_WORD, read_lambda: "return 0x3100;" }
+      - { address: 39, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      - { address: 40, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      - { address: 41, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      - { address: 42, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      - { address: 43, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      - { address: 44, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      - { address: 45, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      - { address: 46, value_type: U_WORD, read_lambda: "return 0xFFFF;" }
+      # MAC "04:71:4B:05:68:61"
+      - { address: 47, value_type: U_WORD, read_lambda: "return 0x3034;" }
+      - { address: 48, value_type: U_WORD, read_lambda: "return 0x3A37;" }
+      - { address: 49, value_type: U_WORD, read_lambda: "return 0x313A;" }
+      - { address: 50, value_type: U_WORD, read_lambda: "return 0x3442;" }
+      - { address: 51, value_type: U_WORD, read_lambda: "return 0x3A30;" }
+      - { address: 52, value_type: U_WORD, read_lambda: "return 0x353A;" }
+      - { address: 53, value_type: U_WORD, read_lambda: "return 0x3638;" }
+      - { address: 54, value_type: U_WORD, read_lambda: "return 0x3A36;" }
+      - { address: 55, value_type: U_WORD, read_lambda: "return 0x3100;" }
+
+      # --- Power per CT in W (R times phase voltage), CT4 unused ---
+      - { address: 0x88, value_type: FP32, read_lambda: "return id(reported_w);" }
+      - { address: 0x8A, value_type: FP32, read_lambda: "return id(reported_w);" }
+      - { address: 0x8C, value_type: FP32, read_lambda: "return id(reported_w);" }
+      - { address: 0x8E, value_type: FP32, read_lambda: "return 0.0f;" }
+      - { address: 0x90, value_type: FP32, read_lambda: "return 3.0f * id(reported_w);" }
+      - { address: 0x92, value_type: U_WORD, read_lambda: "return 0;" }
+
+      # --- Current per CT in A: this is what the charger regulates on ---
+      # Reading CT1 marks one poll cycle for the diagnostics.
+      - address: 0xF4
+        value_type: FP32
+        read_lambda: |-
+          uint32_t now = millis();
+          if (id(last_poll_ms) != 0) id(poll_interval_ms) = (float) (now - id(last_poll_ms));
+          id(last_poll_ms) = now;
+          return id(reported_a);
+      - { address: 0xF6, value_type: FP32, read_lambda: "return id(reported_a);" }
+      - { address: 0xF8, value_type: FP32, read_lambda: "return id(reported_a);" }
+      - { address: 0xFA, value_type: FP32, read_lambda: "return 0.0f;" }
+      - { address: 0xFC, value_type: FP32, read_lambda: "return 3.0f * id(reported_a);" }
+
+      # --- Handshake block ("Generac") ---
+      - { address: 40002, value_type: U_WORD, read_lambda: "return 0x0001;" }
+      - { address: 40003, value_type: U_WORD, read_lambda: "return 0x0042;" }
+      - { address: 40004, value_type: U_WORD, read_lambda: "return 0x4765;" }
+      - { address: 40005, value_type: U_WORD, read_lambda: "return 0x6E65;" }
+      - { address: 40006, value_type: U_WORD, read_lambda: "return 0x7261;" }
+      - { address: 40007, value_type: U_WORD, read_lambda: "return 0x6300;" }

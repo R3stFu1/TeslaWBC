@@ -1,0 +1,5 @@
+secrets.yaml
+.esphome/
+/.pioenvs/
+/.piolibdeps/
+tests/test_control

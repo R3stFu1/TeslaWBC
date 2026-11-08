@@ -4,8 +4,8 @@
 <rect x="30" y="90" width="760" height="1060" rx="12" fill="#f3f8ff" stroke="#0b4a9e" stroke-width="3" stroke-dasharray="12 6"/>
 <text x="46" y="120" font-size="20" font-weight="bold" fill="#0b4a9e" text-anchor="start">Box 1: low voltage (3.3 V / 5 V / RS-485)</text>
 <rect x="850" y="90" width="620" height="760" rx="12" fill="#fff6f6" stroke="#a01010" stroke-width="3" stroke-dasharray="12 6"/>
-<text x="870" y="790" font-size="20" font-weight="bold" fill="#a01010" text-anchor="start">Box 2: high voltage</text>
-<text x="870" y="814" font-size="20" font-weight="bold" fill="#a01010" text-anchor="start">230/400 V, electrician</text>
+<text x="870" y="770" font-size="20" font-weight="bold" fill="#a01010" text-anchor="start">Box 2: high voltage</text>
+<text x="870" y="794" font-size="20" font-weight="bold" fill="#a01010" text-anchor="start">230/400 V, electrician</text>
 <rect x="1060" y="930" width="410" height="220" rx="12" fill="#f7f7f7" stroke="#555" stroke-width="3" stroke-dasharray="12 6"/>
 <text x="1455" y="1132" font-size="20" font-weight="bold" fill="#555" text-anchor="end">Box 3: Wall Connector</text>
 <text x="1130" y="82" font-size="12" text-anchor="middle" fill="#8B4513" font-weight='bold'>L1</text>
@@ -13,8 +13,8 @@
 <text x="1190" y="82" font-size="12" text-anchor="middle" fill="#888" font-weight='bold'>L3</text>
 <text x="1220" y="82" font-size="12" text-anchor="middle" fill="#1f5fbf" font-weight='bold'>N</text>
 <text x="1290" y="82" font-size="12" text-anchor="middle" fill="#2e9e3e" font-weight='bold'>PE</text>
-<text x="1300" y="125" font-size="12" text-anchor="start" fill="#444" >supply from</text>
-<text x="1300" y="141" font-size="12" text-anchor="start" fill="#444" >house distribution</text>
+<text x="1300" y="145" font-size="12" text-anchor="start" fill="#444" >supply from</text>
+<text x="1300" y="161" font-size="12" text-anchor="start" fill="#444" >house distribution</text>
 <path d="M1130,86 L1130,140" fill="none" stroke="#8B4513" stroke-width="3" stroke-linejoin="round" />
 <path d="M1160,86 L1160,140" fill="none" stroke="#222" stroke-width="3" stroke-linejoin="round" />
 <path d="M1190,86 L1190,140" fill="none" stroke="#888" stroke-width="3" stroke-linejoin="round" />
@@ -73,11 +73,11 @@
 <text x="928" y="524" font-size="13" text-anchor="start" fill="#000">A1+</text>
 <circle cx="920" cy="570" r="4.5" fill="#fff" stroke="#000" stroke-width="1.5"/>
 <text x="928" y="574" font-size="13" text-anchor="start" fill="#000">A2−</text>
-<text x="870" y="660" font-size="12" text-anchor="start" fill="#444" >Down to Box 3:</text>
-<text x="870" y="676" font-size="12" text-anchor="start" fill="#444" >L1 L2 L3 N switched by -K1,</text>
-<text x="870" y="692" font-size="12" text-anchor="start" fill="#444" >PE straight through</text>
-<text x="870" y="722" font-size="12" text-anchor="start" fill="#a01010" font-weight='bold'>-F2 (L) and -K1 A2 (N) must both</text>
-<text x="870" y="738" font-size="12" text-anchor="start" fill="#a01010" font-weight='bold'>be fed after the same RCD -Q1</text>
+<text x="870" y="640" font-size="12" text-anchor="start" fill="#444" >Down to Box 3:</text>
+<text x="870" y="656" font-size="12" text-anchor="start" fill="#444" >L1 L2 L3 N switched by -K1,</text>
+<text x="870" y="672" font-size="12" text-anchor="start" fill="#444" >PE straight through</text>
+<text x="870" y="702" font-size="12" text-anchor="start" fill="#a01010" font-weight='bold'>-F2 (L) and -K1 A2 (N) must both</text>
+<text x="870" y="718" font-size="12" text-anchor="start" fill="#a01010" font-weight='bold'>be fed after the same RCD -Q1</text>
 <text x="885" y="250" font-size="13" text-anchor="middle" fill="#000" font-weight='bold'>-X2</text>
 <rect x="871" y="269" width="28" height="22" fill="#ddd" stroke="#555"/>
 <text x="885" y="285" font-size="12" text-anchor="middle" fill="#000" >1</text>
@@ -91,6 +91,28 @@
 <path d="M899,310 L1105,310" fill="none" stroke="#00a0b0" stroke-width="3" stroke-linejoin="round" />
 <path d="M899,520 L920,520" fill="none" stroke="#d62728" stroke-width="3" stroke-linejoin="round" />
 <path d="M899,570 L920,570" fill="none" stroke="#111" stroke-width="3" stroke-linejoin="round" />
+<rect x="1116" y="107" width="28" height="22" fill="#ddd" stroke="#555"/>
+<text x="1130" y="123" font-size="12" text-anchor="middle" fill="#000" >1</text>
+<rect x="1116" y="804" width="28" height="22" fill="#ddd" stroke="#555"/>
+<text x="1130" y="820" font-size="12" text-anchor="middle" fill="#000" >1</text>
+<rect x="1146" y="107" width="28" height="22" fill="#ddd" stroke="#555"/>
+<text x="1160" y="123" font-size="12" text-anchor="middle" fill="#000" >2</text>
+<rect x="1146" y="804" width="28" height="22" fill="#ddd" stroke="#555"/>
+<text x="1160" y="820" font-size="12" text-anchor="middle" fill="#000" >2</text>
+<rect x="1176" y="107" width="28" height="22" fill="#ddd" stroke="#555"/>
+<text x="1190" y="123" font-size="12" text-anchor="middle" fill="#000" >3</text>
+<rect x="1176" y="804" width="28" height="22" fill="#ddd" stroke="#555"/>
+<text x="1190" y="820" font-size="12" text-anchor="middle" fill="#000" >3</text>
+<rect x="1206" y="107" width="28" height="22" fill="#ddd" stroke="#555"/>
+<text x="1220" y="123" font-size="12" text-anchor="middle" fill="#000" >4</text>
+<rect x="1206" y="804" width="28" height="22" fill="#ddd" stroke="#555"/>
+<text x="1220" y="820" font-size="12" text-anchor="middle" fill="#000" >4</text>
+<rect x="1276" y="107" width="28" height="22" fill="#ddd" stroke="#555"/>
+<text x="1290" y="123" font-size="12" text-anchor="middle" fill="#000" >5</text>
+<rect x="1276" y="804" width="28" height="22" fill="#ddd" stroke="#555"/>
+<text x="1290" y="820" font-size="12" text-anchor="middle" fill="#000" >5</text>
+<text x="1310" y="123" font-size="12" text-anchor="start" fill="#000" font-weight='bold'>-X3 supply in</text>
+<text x="1310" y="820" font-size="12" text-anchor="start" fill="#000" font-weight='bold'>-X4 to Wall Connector</text>
 <circle cx="1130" cy="1000" r="4.5" fill="#fff" stroke="#000" stroke-width="1.5"/>
 <text x="1130" y="1022" font-size="13" text-anchor="middle" fill="#000">L1</text>
 <circle cx="1160" cy="1000" r="4.5" fill="#fff" stroke="#000" stroke-width="1.5"/>

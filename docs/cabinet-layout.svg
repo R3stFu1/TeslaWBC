@@ -61,63 +61,64 @@
 <text x="104.0" y="668.0" font-size="18" text-anchor="start" fill="#111" font-weight='bold'>Box 2: high voltage</text>
 <rect x="130" y="815.5" width="714.0" height="119.0" fill="#e8e8e8" stroke="#aaa"/>
 <text x="850.0" y="879.0" font-size="11" text-anchor="start" fill="#777">DIN rail 35 mm</text>
-<rect x="130.0" y="792.5" width="7.5" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<rect x="137.5" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<text x="150.3" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 150.32 875)">X2:1</text>
-<text x="150.3" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 150.32 1060)">5.2</text>
-<rect x="155.2" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<text x="168.0" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 168.0 875)">X2:2</text>
-<text x="168.0" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 168.0 1060)">5.2</text>
-<rect x="172.8" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<text x="185.7" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 185.68 875)">X2:3</text>
-<text x="185.7" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 185.68 1060)">5.2</text>
-<rect x="190.5" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<text x="203.4" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 203.36 875)">X2:4</text>
-<text x="203.4" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 203.36 1060)">5.2</text>
-<rect x="208.2" y="722.0" width="21.1" height="306.0" rx="3" fill="#efe3fa" stroke="#8a3fc0" stroke-width="1.5"/>
-<text x="222.7" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 222.74 875)">-K2 Finder</text>
-<text x="222.7" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 222.74 1060)">6.2</text>
+<rect x="130.0" y="722.0" width="21.1" height="306.0" rx="3" fill="#efe3fa" stroke="#8a3fc0" stroke-width="1.5"/>
+<text x="144.5" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 144.54 875)">-K2 Finder</text>
+<text x="144.5" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 144.54 1060)">6.2</text>
+<rect x="151.1" y="792.5" width="7.5" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
+<rect x="158.6" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
+<text x="171.4" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 171.39999999999998 875)">X2:1</text>
+<text x="171.4" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 171.39999999999998 1060)">5.2</text>
+<rect x="176.2" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
+<text x="189.1" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 189.07999999999998 875)">X2:2</text>
+<text x="189.1" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 189.07999999999998 1060)">5.2</text>
+<rect x="193.9" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
+<text x="206.8" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 206.76 875)">X2:3</text>
+<text x="206.8" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 206.76 1060)">5.2</text>
+<rect x="211.6" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
+<text x="224.4" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 224.44 875)">X2:4</text>
+<text x="224.4" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 224.44 1060)">5.2</text>
 <rect x="229.3" y="722.0" width="59.5" height="306.0" rx="3" fill="#fde4e4" stroke="#c03030" stroke-width="1.5"/>
-<text x="263.0" y="875.0" font-size="12.5" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 263.03000000000003 875)">-F2 C2</text>
-<text x="263.0" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 263.03000000000003 1060)">17.5</text>
+<text x="263.0" y="875.0" font-size="12.5" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 263.03 875)">-F2 C2</text>
+<text x="263.0" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 263.03 1060)">17.5</text>
 <rect x="288.8" y="722.0" width="122.4" height="306.0" rx="3" fill="#fde4e4" stroke="#c03030" stroke-width="1.5"/>
 <text x="350.0" y="869.0" font-size="13" text-anchor="middle" fill="#111" font-weight='bold'>-K1 ESB25</text>
-<text x="354.0" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 353.98 1060)">36</text>
+<text x="354.0" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 353.97999999999996 1060)">36</text>
 <rect x="411.2" y="722.0" width="244.8" height="306.0" rx="3" fill="#fde4e4" stroke="#c03030" stroke-width="1.5"/>
 <text x="533.6" y="869.0" font-size="13" text-anchor="middle" fill="#111" font-weight='bold'>-P1 meter</text>
 <text x="533.6" y="887.0" font-size="11" text-anchor="middle" fill="#444">DRS-100-3P</text>
-<text x="537.6" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 537.58 1060)">72</text>
+<text x="537.6" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 537.5799999999999 1060)">72</text>
 <rect x="656.0" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<text x="668.8" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 668.82 875)">X3:1 L1</text>
-<text x="668.8" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 668.82 1060)">5.2</text>
+<text x="668.8" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 668.8199999999999 875)">X3:1 L1</text>
+<text x="668.8" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 668.8199999999999 1060)">5.2</text>
 <rect x="673.7" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<text x="686.5" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 686.5 875)">X3:2 L2</text>
-<text x="686.5" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 686.5 1060)">5.2</text>
+<text x="686.5" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 686.4999999999999 875)">X3:2 L2</text>
+<text x="686.5" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 686.4999999999999 1060)">5.2</text>
 <rect x="691.3" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<text x="704.2" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 704.18 875)">X3:3 L3</text>
-<text x="704.2" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 704.18 1060)">5.2</text>
+<text x="704.2" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 704.1799999999998 875)">X3:3 L3</text>
+<text x="704.2" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 704.1799999999998 1060)">5.2</text>
 <rect x="709.0" y="792.5" width="17.7" height="164.9" rx="3" fill="#9fc0f0" stroke="#2a5fb0" stroke-width="1.5"/>
-<text x="721.9" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 721.8599999999999 875)">X3:4 N</text>
-<text x="721.9" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 721.8599999999999 1060)">5.2</text>
+<text x="721.9" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 721.8599999999998 875)">X3:4 N</text>
+<text x="721.9" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 721.8599999999998 1060)">5.2</text>
 <rect x="726.7" y="792.5" width="17.7" height="164.9" rx="3" fill="#cfe8b0" stroke="#4a8a20" stroke-width="1.5"/>
-<text x="739.5" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 739.5399999999998 875)">X3:5 PE</text>
-<text x="739.5" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 739.5399999999998 1060)">5.2</text>
+<text x="739.5" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 739.5399999999997 875)">X3:5 PE</text>
+<text x="739.5" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 739.5399999999997 1060)">5.2</text>
 <rect x="744.4" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<text x="757.2" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 757.2199999999998 875)">X3:6 L1</text>
-<text x="757.2" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 757.2199999999998 1060)">5.2</text>
+<text x="757.2" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 757.2199999999997 875)">X3:6 L1</text>
+<text x="757.2" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 757.2199999999997 1060)">5.2</text>
 <rect x="762.1" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<text x="774.9" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 774.8999999999997 875)">X3:7 L2</text>
-<text x="774.9" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 774.8999999999997 1060)">5.2</text>
+<text x="774.9" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 774.8999999999996 875)">X3:7 L2</text>
+<text x="774.9" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 774.8999999999996 1060)">5.2</text>
 <rect x="779.7" y="792.5" width="17.7" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<text x="792.6" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 792.5799999999997 875)">X3:8 L3</text>
-<text x="792.6" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 792.5799999999997 1060)">5.2</text>
+<text x="792.6" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 792.5799999999996 875)">X3:8 L3</text>
+<text x="792.6" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 792.5799999999996 1060)">5.2</text>
 <rect x="797.4" y="792.5" width="17.7" height="164.9" rx="3" fill="#9fc0f0" stroke="#2a5fb0" stroke-width="1.5"/>
-<text x="810.3" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 810.2599999999996 875)">X3:9 N</text>
-<text x="810.3" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 810.2599999999996 1060)">5.2</text>
+<text x="810.3" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 810.2599999999995 875)">X3:9 N</text>
+<text x="810.3" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 810.2599999999995 1060)">5.2</text>
 <rect x="815.1" y="792.5" width="7.5" height="164.9" rx="3" fill="#d9d9d9" stroke="#666" stroke-width="1.5"/>
-<rect x="822.6" y="722.0" width="21.4" height="306.0" fill="url(#hatch)" stroke="#999" stroke-dasharray="4 3"/>
-<text x="837.3" y="875.0" font-size="11" text-anchor="middle" fill="#666" transform="rotate(-90 837.2899999999996 875)">free 6.3 mm</text>
-<text x="130.0" y="1108.0" font-size="12" text-anchor="start" fill="#333">Rail: 203.7 of 210 mm used (widths in mm, to scale). No room for end stops: the devices hold the terminal groups.</text>
+<rect x="822.6" y="807.0" width="20.4" height="136.0" rx="3" fill="#bbb" stroke="#555" stroke-width="1.5"/>
+<text x="836.8" y="875.0" font-size="11" text-anchor="middle" fill="#111" font-weight='bold' transform="rotate(-90 836.7799999999995 875)">Wago 249-116</text>
+<text x="836.8" y="1060.0" font-size="10" text-anchor="middle" fill="#555" transform="rotate(-90 836.7799999999995 1060)">6</text>
+<text x="130.0" y="1108.0" font-size="12" text-anchor="start" fill="#333">Rail: 209.7 of 210 mm used (widths in mm, to scale). X2 sits between Finder and F2; one 6 mm end stop closes the row.</text>
 <circle cx="198.0" cy="1130" r="9" fill="#fff" stroke="#333" stroke-width="2"/>
 <text x="198.0" y="1156.0" font-size="11.5" text-anchor="middle" fill="#333">Cable A</text>
 <circle cx="674.0" cy="1130" r="9" fill="#fff" stroke="#333" stroke-width="2"/>

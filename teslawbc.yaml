@@ -7,8 +7,9 @@
 #                    that measures only the wallbox feed.
 #   Bus 2 (charger): ESP32 poses as the Neurio meter the Wall Connector polls.
 #
-# Home Assistant sets the mode (Stock, Manual, Pause) and the target current.
-# The logic lives in teslawbc/control.h and is unit-tested in tests/.
+# Aperta sets the mode (Bypass, Manual, Pause) and the target current over
+# MQTT or REST (see README.md). The logic lives in teslawbc/control.h and is
+# unit-tested in tests/.
 # =============================================================================
 
 substitutions:
@@ -27,6 +28,12 @@ substitutions:
   # Both reference projects run the charger bus at 115200. If the charger
   # never polls, try 9600 (see README, commissioning).
   charger_baud: "115200"
+
+  # Relay for automatic recovery: drives the coil of a normally closed
+  # contactor in the Wall Connector's feed (see README). GPIO13 stays low
+  # during boot, so the contactor cannot twitch while the ESP32 starts.
+  recovery_relay_pin: GPIO13
+  recovery_power_off_s: "60"  # how long the Wall Connector is switched off
 
   # Fixed safety parameters
   pause_margin_a: "2.0"     # pause = report L + this
@@ -64,16 +71,84 @@ ethernet:
 logger:
   level: INFO
 
-api:
-  encryption:
-    key: !secret api_encryption_key
-  # Never reboot because Home Assistant is away: the fallback target handles that.
+# The network address comes from DHCP. Reserve it in your router.
+
+# Interface to Aperta. Every entity below gets a state topic
+# <prefix>/<type>/<name>/state; controls also get <prefix>/<type>/<name>/command.
+# Broker, port and login are set on the web page (setup wizard) and stored on
+# the device; the values here are placeholders until then.
+mqtt:
+  broker: "0.0.0.0"
+  enable_on_boot: false       # teslawbc_web enables it once a broker is set
+  topic_prefix: ${device_name}
+  discovery: false            # no Home Assistant discovery messages
+  # <prefix>/status is "online" while connected, "offline" (last will) when not.
+  # Never reboot because the broker is away: the fallback target handles that.
   reboot_timeout: 0s
 
-# OTA updates use the API encryption key.
+# Web page (Status, Settings, Setup wizard) on http://<ip>/ and the REST API
+# under /api/, protected by the device password. See README.md.
+external_components:
+  - source:
+      type: local
+      path: components
+
+teslawbc_web:
+  id: web
+  mode: mode_select
+  target: target_current
+  heartbeat: heartbeat_button
+  settings:
+    - conductor_limit
+    - max_output_current
+    - min_current
+    - fallback_target
+    - fallback_timeout
+    - ramp_rate
+    - recovery_bypass_time
+  switches:
+    - auto_recovery
+  sensors:
+    - meter_v1
+    - meter_v2
+    - meter_v3
+    - meter_i1
+    - meter_i2
+    - meter_i3
+    - meter_p1
+    - meter_p2
+    - meter_p3
+    - meter_total_power
+    - meter_frequency
+    - meter_import_energy
+    - reported_current_sensor
+    - effective_target_sensor
+    - poll_interval_sensor
+    - uptime_sensor
+    - twc_vehicle_current
+    - twc_session_energy
+    - twc_session_time
+    - twc_evse_state
+  binary_sensors:
+    - meter_ok_sensor
+    - charger_polling_sensor
+    - fallback_active_sensor
+    - control_lost_sensor
+    - twc_vehicle_connected
+    - twc_contactor_closed
+    - twc_reachable_sensor
+    - recovery_active_sensor
+    - wc_power_cut_sensor
+  text_sensors:
+    - state_text
+    - last_incident_text
+    - firmware_text
+    - ip_address_text
+
 ota:
   - platform: esphome
     encryption:
+      key: !secret ota_encryption_key
 
 # =============================================================================
 # State shared between the meter, the control logic and the Neurio emulation.
@@ -87,7 +162,9 @@ globals:
   - id: last_meter_ms
     type: uint32_t
     initial_value: "0"
-  - id: last_ha_ms
+  # Last command or heartbeat from Aperta
+  - id: last_cmd_ms
+    restore_value: no
     type: uint32_t
     initial_value: "0"
   # Reported current R on CT1 to CT3. Boots at "pause" until the meter answers.
@@ -116,6 +193,21 @@ globals:
   - id: poll_interval_ms
     type: float
     initial_value: "NAN"
+  # Control Lost alarm
+  - id: ctl_lost
+    type: bool
+    initial_value: "false"
+  # Recovery
+  - id: recovery_active
+    type: bool
+    initial_value: "false"
+  - id: wc_power_cut
+    type: bool
+    initial_value: "false"
+  # Wall Connector vitals
+  - id: last_vitals_ms
+    type: uint32_t
+    initial_value: "0"
 
 script:
   - id: recompute
@@ -125,6 +217,7 @@ script:
           teslawbc::Settings cfg;
           cfg.conductor_limit = id(conductor_limit).state;
           cfg.max_output = id(max_output_current).state;
+          cfg.min_current = id(min_current).state;
           cfg.pause_margin = ${pause_margin_a};
           cfg.fallback_target = id(fallback_target).state;
           cfg.fallback_timeout_ms = (uint32_t) (id(fallback_timeout).state * 60000.0f);
@@ -140,10 +233,21 @@ script:
           in.current[2] = id(meter_i3).get_raw_state();
           auto idx = id(mode_select).active_index();
           in.mode = static_cast<teslawbc::Mode>(idx.has_value() ? idx.value() : 0);
+          // Until the setup wizard is finished, TeslaWBC does not steer.
+          if (!id(web).setup_done()) in.mode = teslawbc::Mode::BYPASS;
+          // During a recovery the Wall Connector gets the honest current.
+          if (id(web).recovery_forces_bypass()) in.mode = teslawbc::Mode::BYPASS;
           in.target = id(target_current).state;
-          in.last_ha_ms = id(last_ha_ms);
+          in.last_cmd_ms = id(last_cmd_ms);
 
           teslawbc::Result r = teslawbc::compute(cfg, in);
+
+          // Ramp target changes and dither, so the charger sees a live,
+          // smooth signal and never distrusts the meter.
+          teslawbc::ShapeSettings ss;
+          ss.ramp_rate = id(ramp_rate).state;
+          static teslawbc::Shaper shaper;
+          r.reported = shaper.update(ss, in.now_ms, r);
 
           // Power per CT for the Neurio power registers: R times phase voltage.
           float v[3] = {id(meter_v1).get_raw_state(), id(meter_v2).get_raw_state(),
@@ -156,6 +260,62 @@ script:
           id(effective_target_a) = r.effective_target;
           id(ctl_meter_ok) = r.meter_ok;
           id(ctl_fallback) = r.fallback;
+          // Lives here, not in globals: globals are declared before includes.
+          static teslawbc::ControlWatch control_watch;
+          bool lost = control_watch.update(teslawbc::WatchSettings{}, in.now_ms, r);
+          if (lost != id(ctl_lost)) {
+            id(ctl_lost) = lost;
+            if (lost) {
+              ESP_LOGW("teslawbc", "Control lost: car draws %.1f A in state %s", r.max_current,
+                       teslawbc::state_name(r.state));
+            } else {
+              ESP_LOGI("teslawbc", "Control restored");
+            }
+          }
+
+          // Automatic recovery: cut the Wall Connector's power, then Bypass.
+          teslawbc::RecoverySettings rs;
+          rs.auto_enabled = id(auto_recovery).state;
+          rs.power_off_ms = ${recovery_power_off_s} * 1000u;
+          rs.bypass_ms = (uint32_t) (id(recovery_bypass_time).state * 60000.0f);
+          bool rec_started = false;
+          bool cut = id(web).update_recovery(rs, in.now_ms, lost, &rec_started);
+          if (cut != id(wc_power_cut)) {
+            id(wc_power_cut) = cut;
+            if (cut) {
+              id(wc_power_relay).turn_on();
+            } else {
+              id(wc_power_relay).turn_off();
+            }
+          }
+          id(recovery_active) = id(web).recovery_active();
+
+          // Incident recorder: one sample per second, frozen on the alarm.
+          static bool prev_lost = false;
+          bool rising = lost && !prev_lost;
+          prev_lost = lost;
+          teslawbc::Sample smp;
+          smp.t_ms = in.now_ms;
+          for (int k = 0; k < 3; k++) smp.w[k] = teslawbc::Sample::ca(in.current[k]);
+          smp.reported = teslawbc::Sample::ca(r.reported);
+          smp.target = teslawbc::Sample::ca(r.effective_target);
+          bool vitals = id(last_vitals_ms) != 0 && (millis() - id(last_vitals_ms)) < 30000;
+          smp.vehicle = vitals ? teslawbc::Sample::ca(id(twc_vehicle_current).state) : teslawbc::Sample::NO_VALUE;
+          float poll = id(poll_interval_ms);
+          smp.poll_ms = std::isnan(poll) ? 0 : (uint16_t) std::min(poll, 65535.0f);
+          smp.mode = static_cast<uint8_t>(in.mode);
+          smp.state = static_cast<uint8_t>(r.state);
+          smp.flags = (r.meter_ok ? teslawbc::Sample::FLAG_METER_OK : 0) |
+                      (id(charger_polling_sensor).state ? teslawbc::Sample::FLAG_POLLING : 0) |
+                      (lost ? teslawbc::Sample::FLAG_LOST : 0) |
+                      (id(recovery_active) ? teslawbc::Sample::FLAG_RECOVERY : 0);
+          teslawbc::AnalysisSettings as;
+          as.ramp_rate = ss.ramp_rate;
+          auto now_time = id(sntp_time).now();
+          uint32_t epoch = now_time.is_valid() ? (uint32_t) now_time.timestamp : 0;
+          if (id(web).record(smp, rising, epoch, as))
+            id(last_incident_text).publish_state(id(web).last_incident_summary());
+
           if (static_cast<uint8_t>(r.state) != id(ctl_state)) {
             id(ctl_state) = static_cast<uint8_t>(r.state);
             ESP_LOGI("teslawbc", "State: %s, reported %.2f A", teslawbc::state_name(r.state), r.reported);
@@ -163,20 +323,38 @@ script:
           }
 
 interval:
-  # Timeouts (meter, Home Assistant) also need checking when no reading arrives.
+  # Timeouts (meter, Aperta) also need checking when no reading arrives.
   - interval: 250ms
     then:
       - script.execute: recompute
-  # Home Assistant counts as present while it is subscribed to our states.
-  # A plain `esphome logs` session does not count.
-  - interval: 1s
+  # Wall Connector vitals, for status only. Address set on the web page.
+  - interval: 10s
     then:
       - if:
           condition:
-            api.connected:
-              state_subscription_only: true
+            lambda: return !id(web).wc_host().empty();
           then:
-            - lambda: id(last_ha_ms) = millis();
+            - http_request.get:
+                url: !lambda return "http://" + id(web).wc_host() + "/api/1/vitals";
+                capture_response: true
+                max_response_buffer_size: 2kB
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (response->status_code != 200) return;
+                        json::parse_json(body, [](JsonObject root) -> bool {
+                          id(last_vitals_ms) = millis();
+                          id(twc_vehicle_connected).publish_state(root["vehicle_connected"] | false);
+                          id(twc_contactor_closed).publish_state(root["contactor_closed"] | false);
+                          id(twc_vehicle_current).publish_state(root["vehicle_current_a"] | NAN);
+                          id(twc_session_energy).publish_state((root["session_energy_wh"] | NAN) / 1000.0f);
+                          id(twc_session_time).publish_state(root["session_s"] | NAN);
+                          id(twc_evse_state).publish_state(root["evse_state"] | NAN);
+                          return true;
+                        });
+
+http_request:
+  timeout: 3s
 
 # =============================================================================
 # Bus 1: Crompton DRS-100-3P MOD (Modbus master)
@@ -214,7 +392,7 @@ modbus_controller:
     address: ${meter_address}
     update_interval: 300ms
     max_cmd_retries: 0
-  # Slow: totals for Home Assistant only.
+  # Slow: totals for Aperta only.
   - id: meter_slow
     modbus_id: bus_meter
     address: ${meter_address}
@@ -222,7 +400,7 @@ modbus_controller:
     max_cmd_retries: 1
 
 sensor:
-  # --- Meter, fast block. Filters only affect what Home Assistant sees;
+  # --- Meter, fast block. Filters only affect what Aperta sees;
   #     the control logic reads the raw values. ---
   - platform: modbus_controller
     modbus_controller_id: meter_fast
@@ -377,6 +555,7 @@ sensor:
 
   # --- Controller ---
   - platform: template
+    id: reported_current_sensor
     name: "Reported Current"
     icon: mdi:current-ac
     unit_of_measurement: A
@@ -386,6 +565,7 @@ sensor:
     update_interval: 5s
     lambda: return id(reported_a);
   - platform: template
+    id: effective_target_sensor
     name: "Effective Target"
     icon: mdi:target
     unit_of_measurement: A
@@ -395,6 +575,7 @@ sensor:
     update_interval: 5s
     lambda: return id(effective_target_a);
   - platform: template
+    id: poll_interval_sensor
     name: "Charger Poll Interval"
     icon: mdi:timer-outline
     unit_of_measurement: ms
@@ -404,27 +585,109 @@ sensor:
     update_interval: 10s
     lambda: return id(poll_interval_ms);
   - platform: uptime
+    id: uptime_sensor
     name: "Uptime"
     entity_category: diagnostic
 
+  # --- Wall Connector vitals (local API, status only) ---
+  - platform: template
+    id: twc_vehicle_current
+    name: "WC Vehicle Current"
+    icon: mdi:car-electric
+    unit_of_measurement: A
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: never
+  - platform: template
+    id: twc_session_energy
+    name: "WC Session Energy"
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 2
+    update_interval: never
+  - platform: template
+    id: twc_session_time
+    name: "WC Session Time"
+    unit_of_measurement: s
+    device_class: duration
+    accuracy_decimals: 0
+    update_interval: never
+  - platform: template
+    id: twc_evse_state
+    name: "WC EVSE State"
+    icon: mdi:ev-station
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: never
+
 binary_sensor:
   - platform: template
+    id: meter_ok_sensor
     name: "Meter OK"
     device_class: connectivity
     entity_category: diagnostic
     lambda: return id(ctl_meter_ok);
   - platform: template
+    id: charger_polling_sensor
     name: "Charger Polling"
     device_class: connectivity
     entity_category: diagnostic
     lambda: |-
       return id(last_poll_ms) != 0 && (millis() - id(last_poll_ms)) < 2000;
   - platform: template
+    id: fallback_active_sensor
     name: "Fallback Active"
     device_class: problem
     lambda: return id(ctl_fallback);
+  # The charger is not following TeslaWBC: the car draws clearly more than
+  # the target, or keeps charging in a pause, for 3 minutes.
+  - platform: template
+    id: control_lost_sensor
+    name: "Control Lost"
+    device_class: problem
+    lambda: return id(ctl_lost);
+  - platform: template
+    id: twc_vehicle_connected
+    name: "WC Vehicle Connected"
+    device_class: plug
+  - platform: template
+    id: twc_contactor_closed
+    name: "WC Contactor Closed"
+    device_class: power
+  - platform: template
+    id: twc_reachable_sensor
+    name: "WC Reachable"
+    device_class: connectivity
+    entity_category: diagnostic
+    lambda: |-
+      return id(last_vitals_ms) != 0 && (millis() - id(last_vitals_ms)) < 30000;
+  - platform: template
+    id: recovery_active_sensor
+    name: "Recovery Active"
+    icon: mdi:restart-alert
+    lambda: return id(recovery_active);
+  - platform: template
+    id: wc_power_cut_sensor
+    name: "WC Power Cut"
+    icon: mdi:power-plug-off
+    lambda: return id(wc_power_cut);
   - platform: status
     name: "Status"
+  # Factory reset: hold the board's user button (BUT1) for 10 seconds.
+  - platform: gpio
+    id: user_button
+    pin:
+      number: GPIO34
+      inverted: true
+    internal: true
+    filters:
+      - delayed_on: 10s
+    on_press:
+      - lambda: id(web).factory_reset();
+      - delay: 1s
+      - lambda: App.safe_reboot();
 
 text_sensor:
   - platform: template
@@ -433,32 +696,42 @@ text_sensor:
     icon: mdi:ev-station
     update_interval: never
   - platform: version
+    id: firmware_text
     name: "Firmware"
     entity_category: diagnostic
+  # Short result of the last Control Lost incident; the full recording is
+  # at /api/incidents and on MQTT topic teslawbc/incident.
+  - platform: template
+    id: last_incident_text
+    name: "Last Incident"
+    icon: mdi:file-alert-outline
+    update_interval: never
   - platform: ethernet_info
     ip_address:
+      id: ip_address_text
       name: "IP Address"
       entity_category: diagnostic
 
 # =============================================================================
-# Controls set by Home Assistant
+# Controls set by Aperta
 # =============================================================================
 select:
   - platform: template
     id: mode_select
     name: "Mode"
     icon: mdi:ev-plug-type2
-    # Order matters: index 0, 1, 2 = teslawbc::Mode STOCK, MANUAL, PAUSE.
-    options: [Stock, Manual, Pause]
-    initial_option: Stock
+    # Order matters: index 0, 1, 2 = teslawbc::Mode BYPASS, MANUAL, PAUSE.
+    options: [Bypass, Manual, Pause]
+    initial_option: Bypass
     optimistic: true
     restore_value: true
     on_value:
+      - lambda: id(last_cmd_ms) = millis();
       - script.execute: recompute
 
 number:
-  # Not restored on purpose: automations may write it often, and flash
-  # should not wear out. After a reboot it starts at 6 A until HA writes it.
+  # Not restored on purpose: Aperta may write it often, and flash should
+  # not wear out. After a reboot it starts at 6 A until Aperta writes it.
   - platform: template
     id: target_current
     name: "Target Current"
@@ -472,6 +745,7 @@ number:
     initial_value: 6
     optimistic: true
     on_value:
+      - lambda: id(last_cmd_ms) = millis();
       - script.execute: recompute
   # Must equal "Max Conductor Limit" set in the Tesla app.
   - platform: template
@@ -503,7 +777,24 @@ number:
     initial_value: 16
     optimistic: true
     restore_value: true
-  # Used when Home Assistant is silent. Below 6 A means pause.
+  # Lowest target that still charges; below it TeslaWBC pauses. The Wall
+  # Connector's pilot signal (IEC 61851) starts at 6 A, so 5 A only holds if
+  # the car accepts it. Lower it only after testing (see README).
+  - platform: template
+    id: min_current
+    name: "Min Current"
+    icon: mdi:current-ac
+    entity_category: config
+    unit_of_measurement: A
+    device_class: current
+    mode: box
+    min_value: 5
+    max_value: 16
+    step: 1
+    initial_value: 6
+    optimistic: true
+    restore_value: true
+  # Used when Aperta is silent. Below 6 A means pause.
   - platform: template
     id: fallback_target
     name: "Fallback Target"
@@ -531,8 +822,78 @@ number:
     initial_value: 5
     optimistic: true
     restore_value: true
+  # How fast TeslaWBC moves the charger to a new target, a pause or Bypass.
+  # The car's own current always passes through at once.
+  - platform: template
+    id: ramp_rate
+    name: "Ramp Rate"
+    icon: mdi:chart-line-variant
+    entity_category: config
+    unit_of_measurement: A/s
+    mode: box
+    min_value: 0.05
+    max_value: 2
+    step: 0.05
+    initial_value: 0.25
+    optimistic: true
+    restore_value: true
+  # How long TeslaWBC stays in Bypass after cutting the Wall Connector's power.
+  - platform: template
+    id: recovery_bypass_time
+    name: "Recovery Bypass Time"
+    icon: mdi:timer-sand
+    entity_category: config
+    unit_of_measurement: min
+    mode: box
+    min_value: 30
+    max_value: 480
+    step: 10
+    initial_value: 120
+    optimistic: true
+    restore_value: true
+
+switch:
+  # Off by default: switch on once the contactor is installed.
+  - platform: template
+    id: auto_recovery
+    name: "Auto Recovery"
+    icon: mdi:restart-alert
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+output:
+  # Energized = contactor coil on = Wall Connector OFF (normally closed).
+  - platform: gpio
+    id: wc_power_relay
+    pin: ${recovery_relay_pin}
+
+time:
+  - platform: sntp
+    id: sntp_time
 
 button:
+  # Aperta presses this (or writes Mode or Target Current) at least once per
+  # Fallback Timeout to show it is alive.
+  - platform: template
+    id: heartbeat_button
+    name: "Heartbeat"
+    icon: mdi:heart-pulse
+    on_press:
+      - lambda: id(last_cmd_ms) = millis();
+  # Start a recovery by hand: power off for 1 min, then Bypass.
+  - platform: template
+    id: recover_button
+    name: "Recover Wall Connector"
+    icon: mdi:restart-alert
+    on_press:
+      - lambda: id(web).start_recovery();
+  - platform: template
+    id: cancel_recovery_button
+    name: "Cancel Recovery"
+    icon: mdi:cancel
+    on_press:
+      - lambda: id(web).cancel_recovery();
   - platform: restart
     name: "Restart"
     entity_category: config

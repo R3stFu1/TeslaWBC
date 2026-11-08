@@ -18,6 +18,7 @@ main{max-width:860px;margin:0 auto;padding:16px}
 .card h2{font-size:15px;margin:0 0 10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .kv{border:1px solid var(--line);border-radius:10px;padding:8px 10px}.kv .k{color:var(--muted);font-size:12px}.kv .v{font-size:18px;font-weight:600}
+.inc{border-top:1px solid var(--line);padding:8px 0}.inc:first-child{border-top:0}.inc ul{margin:6px 0 0 18px;padding:0}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
 input{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);width:100%;max-width:320px}
@@ -44,6 +45,10 @@ table{border-collapse:collapse;width:100%}td{padding:6px 4px;border-bottom:1px s
   <div class="card"><h2>Health</h2><div class="row" id="health"></div></div>
   <div class="card"><h2>Live values</h2><div class="grid" id="live"></div></div>
   <div class="card"><h2>Wall Connector</h2><div class="grid" id="wc"></div></div>
+  <div class="card"><h2>Recovery</h2><div class="grid" id="rec"></div>
+    <div class="row" style="margin-top:12px"><button class="b" id="recstart">Recover now</button><button class="b" id="reccancel">Cancel recovery</button></div>
+    <p class="muted">Recover cuts the Wall Connector's power for 1 minute, then keeps TeslaWBC in Bypass for the Recovery Bypass Time. Needs the contactor (see README).</p><div class="msg" id="recmsg"></div></div>
+  <div class="card"><h2>Incidents</h2><div id="incs"><p class="muted">No Control Lost incident since the last restart.</p></div></div>
 </section>
 
 <section id="tab-settings" class="hide">
@@ -100,16 +105,28 @@ function render(){
     kv('Power',fmt(V('power'),'W',0)),kv('Energy',fmt(V('energy'),'kWh',2)),kv('Charger poll',fmt(V('charger_poll_interval'),'ms',0)));
   $('#wc').replaceChildren(kv('Vehicle connected',V('wc_vehicle_connected')==null?'–':V('wc_vehicle_connected')?'yes':'no'),kv('Contactor',V('wc_contactor_closed')==null?'–':V('wc_contactor_closed')?'closed':'open'),
     kv('Vehicle current',fmt(V('wc_vehicle_current'),'A')),kv('Session energy',fmt(V('wc_session_energy'),'kWh',2)));
+  const R=S.recovery||{};const mmss=x=>x>=3600?`${Math.floor(x/3600)} h ${Math.floor(x%3600/60)} min`:`${Math.floor(x/60)} min ${x%60} s`;
+  $('#rec').replaceChildren(kv('Automatic',R.auto?'on':'off'),kv('Phase',R.active?`${R.phase} · ${mmss(R.remaining_s)} left`:'idle'),
+    kv('Wall Connector power',R.power_cut?'cut':'on'),kv('Next automatic attempt',R.next_auto_in_s?'in '+mmss(R.next_auto_in_s):'allowed'),kv('Recoveries since restart',R.attempts??'–'));
+  if(S.last_incident!==lastInc){lastInc=S.last_incident;loadIncidents()}
   if(!$('#tab-setup').classList.contains('hide'))wizCheck();
 }
+let lastInc=0;
+async function loadIncidents(){if(!lastInc)return;try{const j=await api('incidents');
+  $('#incs').replaceChildren(...j.incidents.slice().reverse().map(i=>el('div',{class:'inc'},
+    el('div',{},el('b',{},`#${i.id} `),i.time?new Date(i.time*1000).toLocaleString():`${i.uptime_s} s after start`,' · ',el('a',{href:i.csv},'CSV')),
+    i.complete?(i.causes.length?el('ul',{},...i.causes.map(c=>el('li',{},`${c.text}: first ${-c.first_s} s before the alarm, in ${c.count} of the recorded seconds`))):el('p',{class:'muted'},'No known cause found in the 10 minutes before the alarm.')):el('p',{class:'muted'},'Recording the 3 minutes after the alarm…'))))}catch(e){}}
+$('#recstart').onclick=async()=>{if(!confirm("Cut the Wall Connector's power for 1 minute and stay in Bypass afterwards?"))return;try{await api('recovery',{action:'start'});msg('#recmsg','Recovery started.','ok');setTimeout(poll,400)}catch(e){msg('#recmsg',e.message,'bad')}};
+$('#reccancel').onclick=async()=>{try{await api('recovery',{action:'cancel'});msg('#recmsg','Cancelled.','ok');setTimeout(poll,400)}catch(e){msg('#recmsg',e.message,'bad')}};
 async function control(b){try{await api('control',b);msg('#ctlmsg','Sent.','ok');setTimeout(poll,400)}catch(e){msg('#ctlmsg',e.message,'bad')}}
 $('#tgtset').onclick=()=>control({target:+$('#tgt').value});
 
 // ---- settings
 async function loadSettings(){C=await api('settings');$('#fwver').textContent=S.firmware||'–';
-  $('#nums').replaceChildren(...Object.entries(C.numbers).map(([id,n])=>el('div',{},el('label',{for:'n_'+id},`${n.name} (${n.min} to ${n.max} ${n.unit})`),el('input',{id:'n_'+id,type:'number',min:n.min,max:n.max,step:n.step,value:n.value,style:'max-width:140px'}))));
+  $('#nums').replaceChildren(...Object.entries(C.numbers).map(([id,n])=>el('div',{},el('label',{for:'n_'+id},`${n.name} (${n.min} to ${n.max} ${n.unit})`),el('input',{id:'n_'+id,type:'number',min:n.min,max:n.max,step:n.step,value:n.value,style:'max-width:140px'}))),
+    ...Object.entries(C.switches||{}).map(([id,w])=>{const c=el('input',{id:'n_'+id,type:'checkbox','data-sw':'1',style:'width:auto;margin-right:8px'});c.checked=w.value;return el('label',{style:'display:flex;align-items:center;margin-top:12px'},c,w.name)}));
   for(const k of['mqtt_host','mqtt_port','mqtt_user','wc_host'])$('#s_'+k).value=C[k]??'';$('#s_mqtt_password').value='';}
-function numBody(ids){const b={};for(const id of ids||Object.keys(C.numbers)){const i=$('#n_'+id)||$('#w_'+id);if(i)b[id]=+i.value}return b}
+function numBody(ids){const b={};for(const id of ids||[...Object.keys(C.numbers),...Object.keys(C.switches||{})]){const i=$('#n_'+id)||$('#w_'+id);if(i)b[id]=i.dataset.sw?i.checked:+i.value}return b}
 $('#numsave').onclick=async()=>{try{await api('settings',numBody());msg('#nummsg','Saved.','ok')}catch(e){msg('#nummsg',e.message,'bad')}};
 function conBody(p=''){const b={mqtt_host:$('#'+p+'mqtt_host').value.trim(),mqtt_port:+$('#'+p+'mqtt_port').value||1883,mqtt_user:$('#'+p+'mqtt_user').value.trim()};const pw=$('#'+p+'mqtt_password').value;if(pw)b.mqtt_password=pw;return b}
 $('#consave').onclick=async()=>{try{await api('settings',{...conBody('s_'),wc_host:$('#s_wc_host').value.trim()});msg('#conmsg','Saved. MQTT reconnects with the new settings.','ok')}catch(e){msg('#conmsg',e.message,'bad')}};

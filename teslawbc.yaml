@@ -29,6 +29,12 @@ substitutions:
   # never polls, try 9600 (see README, commissioning).
   charger_baud: "115200"
 
+  # Relay for automatic recovery: drives the coil of a normally closed
+  # contactor in the Wall Connector's feed (see README). GPIO13 stays low
+  # during boot, so the contactor cannot twitch while the ESP32 starts.
+  recovery_relay_pin: GPIO13
+  recovery_power_off_s: "60"  # how long the Wall Connector is switched off
+
   # Fixed safety parameters
   pause_margin_a: "2.0"     # pause = report L + this
   meter_timeout_ms: "3000"  # no valid meter reading for this long = meter fault
@@ -99,6 +105,9 @@ teslawbc_web:
     - fallback_target
     - fallback_timeout
     - ramp_rate
+    - recovery_bypass_time
+  switches:
+    - auto_recovery
   sensors:
     - meter_v1
     - meter_v2
@@ -128,8 +137,11 @@ teslawbc_web:
     - twc_vehicle_connected
     - twc_contactor_closed
     - twc_reachable_sensor
+    - recovery_active_sensor
+    - wc_power_cut_sensor
   text_sensors:
     - state_text
+    - last_incident_text
     - firmware_text
     - ip_address_text
 
@@ -185,6 +197,13 @@ globals:
   - id: ctl_lost
     type: bool
     initial_value: "false"
+  # Recovery
+  - id: recovery_active
+    type: bool
+    initial_value: "false"
+  - id: wc_power_cut
+    type: bool
+    initial_value: "false"
   # Wall Connector vitals
   - id: last_vitals_ms
     type: uint32_t
@@ -216,6 +235,8 @@ script:
           in.mode = static_cast<teslawbc::Mode>(idx.has_value() ? idx.value() : 0);
           // Until the setup wizard is finished, TeslaWBC does not steer.
           if (!id(web).setup_done()) in.mode = teslawbc::Mode::BYPASS;
+          // During a recovery the Wall Connector gets the honest current.
+          if (id(web).recovery_forces_bypass()) in.mode = teslawbc::Mode::BYPASS;
           in.target = id(target_current).state;
           in.last_cmd_ms = id(last_cmd_ms);
 
@@ -251,6 +272,50 @@ script:
               ESP_LOGI("teslawbc", "Control restored");
             }
           }
+
+          // Automatic recovery: cut the Wall Connector's power, then Bypass.
+          teslawbc::RecoverySettings rs;
+          rs.auto_enabled = id(auto_recovery).state;
+          rs.power_off_ms = ${recovery_power_off_s} * 1000u;
+          rs.bypass_ms = (uint32_t) (id(recovery_bypass_time).state * 60000.0f);
+          bool rec_started = false;
+          bool cut = id(web).update_recovery(rs, in.now_ms, lost, &rec_started);
+          if (cut != id(wc_power_cut)) {
+            id(wc_power_cut) = cut;
+            if (cut) {
+              id(wc_power_relay).turn_on();
+            } else {
+              id(wc_power_relay).turn_off();
+            }
+          }
+          id(recovery_active) = id(web).recovery_active();
+
+          // Incident recorder: one sample per second, frozen on the alarm.
+          static bool prev_lost = false;
+          bool rising = lost && !prev_lost;
+          prev_lost = lost;
+          teslawbc::Sample smp;
+          smp.t_ms = in.now_ms;
+          for (int k = 0; k < 3; k++) smp.w[k] = teslawbc::Sample::ca(in.current[k]);
+          smp.reported = teslawbc::Sample::ca(r.reported);
+          smp.target = teslawbc::Sample::ca(r.effective_target);
+          bool vitals = id(last_vitals_ms) != 0 && (millis() - id(last_vitals_ms)) < 30000;
+          smp.vehicle = vitals ? teslawbc::Sample::ca(id(twc_vehicle_current).state) : teslawbc::Sample::NO_VALUE;
+          float poll = id(poll_interval_ms);
+          smp.poll_ms = std::isnan(poll) ? 0 : (uint16_t) std::min(poll, 65535.0f);
+          smp.mode = static_cast<uint8_t>(in.mode);
+          smp.state = static_cast<uint8_t>(r.state);
+          smp.flags = (r.meter_ok ? teslawbc::Sample::FLAG_METER_OK : 0) |
+                      (id(charger_polling_sensor).state ? teslawbc::Sample::FLAG_POLLING : 0) |
+                      (lost ? teslawbc::Sample::FLAG_LOST : 0) |
+                      (id(recovery_active) ? teslawbc::Sample::FLAG_RECOVERY : 0);
+          teslawbc::AnalysisSettings as;
+          as.ramp_rate = ss.ramp_rate;
+          auto now_time = id(sntp_time).now();
+          uint32_t epoch = now_time.is_valid() ? (uint32_t) now_time.timestamp : 0;
+          if (id(web).record(smp, rising, epoch, as))
+            id(last_incident_text).publish_state(id(web).last_incident_summary());
+
           if (static_cast<uint8_t>(r.state) != id(ctl_state)) {
             id(ctl_state) = static_cast<uint8_t>(r.state);
             ESP_LOGI("teslawbc", "State: %s, reported %.2f A", teslawbc::state_name(r.state), r.reported);
@@ -598,6 +663,16 @@ binary_sensor:
     entity_category: diagnostic
     lambda: |-
       return id(last_vitals_ms) != 0 && (millis() - id(last_vitals_ms)) < 30000;
+  - platform: template
+    id: recovery_active_sensor
+    name: "Recovery Active"
+    icon: mdi:restart-alert
+    lambda: return id(recovery_active);
+  - platform: template
+    id: wc_power_cut_sensor
+    name: "WC Power Cut"
+    icon: mdi:power-plug-off
+    lambda: return id(wc_power_cut);
   - platform: status
     name: "Status"
   # Factory reset: hold the board's user button (BUT1) for 10 seconds.
@@ -624,6 +699,13 @@ text_sensor:
     id: firmware_text
     name: "Firmware"
     entity_category: diagnostic
+  # Short result of the last Control Lost incident; the full recording is
+  # at /api/incidents and on MQTT topic teslawbc/incident.
+  - platform: template
+    id: last_incident_text
+    name: "Last Incident"
+    icon: mdi:file-alert-outline
+    update_interval: never
   - platform: ethernet_info
     ip_address:
       id: ip_address_text
@@ -755,6 +837,40 @@ number:
     initial_value: 0.25
     optimistic: true
     restore_value: true
+  # How long TeslaWBC stays in Bypass after cutting the Wall Connector's power.
+  - platform: template
+    id: recovery_bypass_time
+    name: "Recovery Bypass Time"
+    icon: mdi:timer-sand
+    entity_category: config
+    unit_of_measurement: min
+    mode: box
+    min_value: 30
+    max_value: 480
+    step: 10
+    initial_value: 120
+    optimistic: true
+    restore_value: true
+
+switch:
+  # Off by default: switch on once the contactor is installed.
+  - platform: template
+    id: auto_recovery
+    name: "Auto Recovery"
+    icon: mdi:restart-alert
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+output:
+  # Energized = contactor coil on = Wall Connector OFF (normally closed).
+  - platform: gpio
+    id: wc_power_relay
+    pin: ${recovery_relay_pin}
+
+time:
+  - platform: sntp
+    id: sntp_time
 
 button:
   # Aperta presses this (or writes Mode or Target Current) at least once per
@@ -765,6 +881,19 @@ button:
     icon: mdi:heart-pulse
     on_press:
       - lambda: id(last_cmd_ms) = millis();
+  # Start a recovery by hand: power off for 1 min, then Bypass.
+  - platform: template
+    id: recover_button
+    name: "Recover Wall Connector"
+    icon: mdi:restart-alert
+    on_press:
+      - lambda: id(web).start_recovery();
+  - platform: template
+    id: cancel_recovery_button
+    name: "Cancel Recovery"
+    icon: mdi:cancel
+    on_press:
+      - lambda: id(web).cancel_recovery();
   - platform: restart
     name: "Restart"
     entity_category: config

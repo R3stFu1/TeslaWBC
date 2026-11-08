@@ -281,6 +281,13 @@ void TeslaWbcWeb::handleRequest(AsyncWebServerRequest *request) {
   } else if (url == "/api/heartbeat" && post) {
     this->defer([this]() { this->heartbeat_->press(); });
     this->send_json_(request, 200, "{\"ok\":true}");
+  } else if (url == "/api/incidents" && !post) {
+    this->handle_incidents_(request);
+  } else if (!post && url.rfind("/api/incidents/", 0) == 0 && url.size() > 19 &&
+             url.compare(url.size() - 4, 4, ".csv") == 0) {
+    this->handle_incident_csv_(request, strtoul(url.c_str() + 15, nullptr, 10));
+  } else if (url == "/api/recovery" && post) {
+    this->handle_recovery_(request);
   } else if (url == "/api/password" && post) {
     this->handle_password_(request);
   } else if (url == "/api/setup/complete" && post) {
@@ -331,6 +338,19 @@ void TeslaWbcWeb::handle_status_(AsyncWebServerRequest *request) {
     }
     for (auto *s : this->text_sensors_)
       values[object_id(s)] = s->state;
+    LockGuard guard(this->lock_);
+    uint32_t now = millis();
+    JsonObject rec = root["recovery"].to<JsonObject>();
+    rec["phase"] = teslawbc::recovery_phase_name(this->recovery_.phase());
+    rec["active"] = this->recovery_.active();
+    rec["power_cut"] = this->recovery_.power_cut();
+    rec["remaining_s"] = this->recovery_.remaining_ms(this->recovery_settings_, now) / 1000;
+    rec["auto"] = this->recovery_settings_.auto_enabled;
+    rec["next_auto_in_s"] = this->recovery_.blocked_ms(this->recovery_settings_, now) / 1000;
+    rec["attempts"] = this->recovery_.attempts();
+    const auto &incs = this->recorder_.incidents();
+    root["incidents"] = incs.size();
+    root["last_incident"] = incs.empty() ? 0 : incs.back().id;
   });
   this->send_json_(request, 200, json);
 }
@@ -347,6 +367,12 @@ void TeslaWbcWeb::handle_settings_get_(AsyncWebServerRequest *request) {
       o["step"] = n->traits.get_step();
       o["unit"] = n->get_unit_of_measurement_ref().c_str();
     }
+    JsonObject sws = root["switches"].to<JsonObject>();
+    for (auto *sw : this->switches_) {
+      JsonObject o = sws[object_id(sw)].to<JsonObject>();
+      o["name"] = sw->get_name().c_str();
+      o["value"] = sw->state;
+    }
     root["mqtt_host"] = this->cfg_.mqtt_host;
     root["mqtt_port"] = this->cfg_.mqtt_port;
     root["mqtt_user"] = this->cfg_.mqtt_user;
@@ -362,6 +388,7 @@ void TeslaWbcWeb::handle_settings_post_(AsyncWebServerRequest *request) {
   std::string error;
   bool connection_changed = false;
   std::vector<std::pair<number::Number *, float>> number_changes;
+  std::vector<std::pair<switch_::Switch *, bool>> switch_changes;
   StoredConfig next = this->cfg_;
 
   bool ok = json::parse_json(this->body_, [&](JsonObject root) -> bool {
@@ -375,6 +402,11 @@ void TeslaWbcWeb::handle_settings_post_(AsyncWebServerRequest *request) {
         return false;
       }
       number_changes.emplace_back(n, v);
+    }
+    for (auto *sw : this->switches_) {
+      std::string id = object_id(sw);
+      if (root[id].is<bool>())
+        switch_changes.emplace_back(sw, root[id].as<bool>());
     }
     auto take_str = [&](const char *key, char *dst, size_t size) {
       if (!root[key].is<const char *>())
@@ -410,11 +442,18 @@ void TeslaWbcWeb::handle_settings_post_(AsyncWebServerRequest *request) {
   bool mqtt_changed = strcmp(next.mqtt_host, this->cfg_.mqtt_host) != 0 || next.mqtt_port != this->cfg_.mqtt_port ||
                       strcmp(next.mqtt_user, this->cfg_.mqtt_user) != 0 ||
                       strcmp(next.mqtt_password, this->cfg_.mqtt_password) != 0;
-  this->defer([this, next, number_changes, connection_changed, mqtt_changed]() {
+  this->defer([this, next, number_changes, switch_changes, connection_changed, mqtt_changed]() {
     for (auto &c : number_changes) {
       auto call = c.first->make_call();
       call.set_value(c.second);
       call.perform();
+    }
+    for (auto &c : switch_changes) {
+      if (c.second) {
+        c.first->turn_on();
+      } else {
+        c.first->turn_off();
+      }
     }
     if (connection_changed) {
       this->cfg_ = next;
@@ -500,6 +539,168 @@ void TeslaWbcWeb::handle_setup_complete_(AsyncWebServerRequest *request) {
     this->save_();
     ESP_LOGI(TAG, "Setup complete; the device password is now required");
   });
+  this->send_json_(request, 200, "{\"ok\":true}");
+}
+
+// ---------------------------------------------------------------------------
+// Recovery and incidents
+// ---------------------------------------------------------------------------
+
+bool TeslaWbcWeb::update_recovery(const teslawbc::RecoverySettings &rs, uint32_t now_ms, bool control_lost,
+                                  bool *started) {
+  LockGuard guard(this->lock_);
+  this->recovery_settings_ = rs;
+  bool was = this->recovery_.active();
+  *started = this->recovery_.update(rs, now_ms, control_lost);
+  if (*started)
+    ESP_LOGW(TAG, "Control lost: recovery started (power off, then Bypass)");
+  if (was && !this->recovery_.active())
+    ESP_LOGI(TAG, "Recovery finished: back to normal operation");
+  return this->recovery_.power_cut();
+}
+
+void TeslaWbcWeb::start_recovery() {
+  LockGuard guard(this->lock_);
+  this->recovery_.start(millis());
+  ESP_LOGW(TAG, "Recovery started by hand");
+}
+
+void TeslaWbcWeb::cancel_recovery() {
+  LockGuard guard(this->lock_);
+  if (this->recovery_.active())
+    ESP_LOGI(TAG, "Recovery cancelled");
+  this->recovery_.cancel();
+}
+
+bool TeslaWbcWeb::record(const teslawbc::Sample &sample, bool alarm_rising, uint32_t epoch_now,
+                         const teslawbc::AnalysisSettings &as) {
+  const teslawbc::Incident *done;
+  {
+    LockGuard guard(this->lock_);
+    done = this->recorder_.add(sample, alarm_rising, epoch_now, as);
+    if (alarm_rising)
+      ESP_LOGW(TAG, "Recording incident %u", (unsigned) this->recorder_.incidents().back().id);
+    if (done == nullptr)
+      return false;
+  }
+  ESP_LOGW(TAG, "%s", teslawbc::incident_summary(*done).c_str());
+  this->publish_incident_(*done);
+  return true;
+}
+
+std::string TeslaWbcWeb::last_incident_summary() {
+  LockGuard guard(this->lock_);
+  const auto &incs = this->recorder_.incidents();
+  return incs.empty() ? std::string() : teslawbc::incident_summary(incs.back());
+}
+
+static void incident_json(JsonObject o, const teslawbc::Incident &inc) {
+  o["id"] = inc.id;
+  if (inc.alarm_epoch != 0) {
+    o["time"] = inc.alarm_epoch;
+  } else {
+    o["time"] = nullptr;
+  }
+  o["uptime_s"] = inc.alarm_ms / 1000;
+  o["complete"] = inc.complete;
+  o["summary"] = teslawbc::incident_summary(inc);
+  o["samples"] = inc.samples.size();
+  o["seconds_before"] = inc.alarm_index;
+  char url[40];
+  snprintf(url, sizeof(url), "/api/incidents/%u.csv", (unsigned) inc.id);
+  o["csv"] = url;
+  JsonArray causes = o["causes"].to<JsonArray>();
+  for (const auto &f : inc.findings) {
+    JsonObject c = causes.add<JsonObject>();
+    c["cause"] = teslawbc::cause_key(f.cause);
+    c["text"] = teslawbc::cause_text(f.cause);
+    c["first_s"] = f.first_s;
+    c["count"] = f.count;
+    c["worst"] = f.worst;
+  }
+}
+
+void TeslaWbcWeb::publish_incident_(const teslawbc::Incident &inc) {
+#ifdef TESLAWBC_USE_MQTT
+  auto *m = mqtt::global_mqtt_client;
+  if (m == nullptr || !m->is_connected())
+    return;
+  std::string json;
+  {
+    LockGuard guard(this->lock_);
+    json = json::build_json([&inc](JsonObject root) { incident_json(root, inc); });
+  }
+  m->publish(m->get_topic_prefix() + "/incident", json, 1, true);
+#endif
+}
+
+void TeslaWbcWeb::handle_incidents_(AsyncWebServerRequest *request) {
+  std::string json;
+  {
+    LockGuard guard(this->lock_);
+    json = json::build_json([this](JsonObject root) {
+      JsonArray list = root["incidents"].to<JsonArray>();
+      for (const auto &inc : this->recorder_.incidents())
+        incident_json(list.add<JsonObject>(), inc);
+    });
+  }
+  this->send_json_(request, 200, json);
+}
+
+void TeslaWbcWeb::handle_incident_csv_(AsyncWebServerRequest *request, uint32_t id) {
+  // Copy under the lock, stream without it, so a slow client cannot stall control.
+  std::vector<teslawbc::Sample> samples;
+  uint32_t alarm_ms = 0;
+  {
+    LockGuard guard(this->lock_);
+    const teslawbc::Incident *inc = this->recorder_.find(id);
+    if (inc != nullptr) {
+      samples = inc->samples;
+      alarm_ms = inc->alarm_ms;
+    }
+  }
+  if (samples.empty()) {
+    this->send_error_(request, 404, "no such incident");
+    return;
+  }
+  httpd_req_t *r = *request;
+  char disp[64];
+  snprintf(disp, sizeof(disp), "attachment; filename=\"teslawbc-incident-%u.csv\"", (unsigned) id);
+  httpd_resp_set_type(r, "text/csv");
+  httpd_resp_set_hdr(r, "Content-Disposition", disp);
+  httpd_resp_set_hdr(r, "Cache-Control", "no-store");
+  std::string chunk = teslawbc::csv_header();
+  char row[160];
+  for (const auto &smp : samples) {
+    int n = teslawbc::csv_row(row, sizeof(row), smp, alarm_ms);
+    if (n > 0)
+      chunk.append(row, std::min<size_t>(n, sizeof(row) - 1));
+    if (chunk.size() > 3000) {
+      if (httpd_resp_send_chunk(r, chunk.data(), chunk.size()) != ESP_OK)
+        return;
+      chunk.clear();
+    }
+  }
+  if (!chunk.empty())
+    httpd_resp_send_chunk(r, chunk.data(), chunk.size());
+  httpd_resp_send_chunk(r, nullptr, 0);
+}
+
+void TeslaWbcWeb::handle_recovery_(AsyncWebServerRequest *request) {
+  std::string action;
+  json::parse_json(this->body_, [&](JsonObject root) -> bool {
+    if (root["action"].is<const char *>())
+      action = root["action"].as<std::string>();
+    return true;
+  });
+  if (action == "start") {
+    this->defer([this]() { this->start_recovery(); });
+  } else if (action == "cancel") {
+    this->defer([this]() { this->cancel_recovery(); });
+  } else {
+    this->send_error_(request, 400, "action must be \"start\" or \"cancel\"");
+    return;
+  }
   this->send_json_(request, 200, "{\"ok\":true}");
 }
 

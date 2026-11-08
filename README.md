@@ -20,6 +20,7 @@ An ESP32 reads a dedicated energy meter on the wallbox feed and poses as the Neu
 | Meter (bus 1) | TXD | GPIO36 (RX) | UEXT pin 4 |
 | Charger (bus 2) | RXD | GPIO32 (TX) | GPIO header |
 | Charger (bus 2) | TXD | GPIO33 (RX) | GPIO header |
+| Recovery relay (optional) | IN | GPIO13 | UEXT pin 6 / GPIO header |
 | Both | VCC / GND | 3.3 V / GND | UEXT pins 1 and 2 |
 
 The ESP32's TX goes to the module's RXD input. If a bus stays silent, swapping TX and RX at the module is the first thing to try.
@@ -60,7 +61,39 @@ Field reports show the charger also distrusts a meter whose value stays flat for
 - **Aperta silent** (no command or heartbeat for longer than *Fallback Timeout*, default 5 min): Manual and Pause switch to *Fallback Target* (default 6 A; 0 means pause). Bypass stays Bypass.
 - **ESP32 off or crashed**: the charger falls back to Tesla's built-in 6 A cap.
 - **Bypass mode** is the kill switch, without rewiring.
-- **Control Lost alarm**: if the charger ever judges the meter implausible, it ignores it, sometimes for hours, and charges at its own maximum; Pause stops working too. TeslaWBC raises *Control Lost* when the car draws more than 1.5 A above the target, or more than 1 A during a pause, for 3 minutes. It clears as soon as the charger follows again. Aperta should alert on it. Recovery that worked for others: switch the Wall Connector off and on, then leave TeslaWBC in Bypass for a few hours.
+- **Control Lost alarm**: if the charger ever judges the meter implausible, it ignores it, sometimes for hours, and charges at its own maximum; Pause stops working too. TeslaWBC raises *Control Lost* when the car draws more than 1.5 A above the target, or more than 1 A during a pause, for 3 minutes. It clears as soon as the charger follows again. Aperta should alert on it. Recovery that worked for others: switch the Wall Connector off and on, then send it an honest signal (Bypass) for about 2 hours. TeslaWBC can do this by itself (see below).
+
+### Automatic recovery
+
+With a contactor in the Wall Connector's feed, TeslaWBC restores trust by itself:
+
+1. *Control Lost* is raised (and *Auto Recovery* is on).
+2. The relay output energizes the contactor coil for 1 minute: the Wall Connector is off. TeslaWBC switches to Bypass.
+3. Power returns; TeslaWBC stays in Bypass for *Recovery Bypass Time* (default 2 h).
+4. Back to the mode Aperta set.
+
+It tries automatically at most once per 24 hours. If trust is lost again within that time, the alarm stays on for a person to look at. *Recover Wall Connector* (button, `POST /api/recovery`, MQTT) starts a recovery by hand, *Cancel Recovery* ends it. *Recovery Active* and *WC Power Cut* show what is happening.
+
+**Hardware** (electrician work, in the panel):
+- **Contactor:** 4-pole, all contacts **normally closed**, rated at least for the Wall Connector's breaker, switching L1, L2, L3 and N. Example: ABB ESB25-04N-06 (4 NC, 25 A AC-1, 230 V coil); the 40 A version for a larger breaker. Normally closed means the Wall Connector keeps its power when the coil, the relay or the ESP32 fails.
+- **Interface relay** for the coil, driven by GPIO13 (`recovery_relay_pin`): e.g. Finder 38.51.7.005.0050 (5 V coil) through a transistor, or a 3.3 V optocoupler relay module. GPIO13 stays low while the ESP32 boots.
+
+*Auto Recovery* is off by default. Switch it on (Settings) once the contactor is installed and tested with *Recover Wall Connector*.
+
+### Incident log
+
+TeslaWBC records one sample per second of the last 10 minutes: the three meter currents, the value served to the charger, target, Wall Connector vehicle current, poll interval, mode, state and flags. When *Control Lost* is raised it keeps that recording plus the 3 minutes after, and looks for the known distrust triggers in the 10 minutes before the alarm:
+
+| Cause | Meaning |
+|---|---|
+| `below_car` | Reported current below what the wallbox drew |
+| `flat` | Reported value unchanged for 30 s or more |
+| `jump` | Reported value changed more than the car's current plus the ramp explain |
+| `poll_gap` | The charger stopped polling, or polled slower than once a second |
+| `meter_fault` | No valid meter reading |
+| `vehicle_mismatch` | Meter and Wall Connector differ by more than 2 A for 30 s (wiring, wrong CT phase, meter scaling) |
+
+Tesla does not say why it stopped trusting, so these are candidates, not proof; "no known cause found" is possible. The result goes out with the alarm: the *Last Incident* text sensor, a retained JSON message on `teslawbc/incident`, and `GET /api/incidents`. The full recording is a CSV at `/api/incidents/<id>.csv` (also linked on the Status page). The last 3 incidents are kept in RAM until the ESP32 restarts, so Aperta should store what it receives.
 
 ### Wall Connector status
 
@@ -96,10 +129,13 @@ Both interfaces offer the same functions; Aperta can use either or both.
 | `POST /api/control` | `{"mode":"Manual","target":10}` (either key optional) | Set mode and/or target. Every call also counts as heartbeat |
 | `POST /api/heartbeat` | `{}` | Sign of life only |
 | `GET /api/settings` | | Charging settings with ranges, MQTT broker and user, Wall Connector address |
-| `POST /api/settings` | e.g. `{"max_conductor_limit":18,"mqtt_host":"192.168.1.10"}` | Change any subset. Keys: `max_conductor_limit`, `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`, `ramp_rate`, `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password`, `wc_host` |
+| `POST /api/settings` | e.g. `{"max_conductor_limit":18,"mqtt_host":"192.168.1.10"}` | Change any subset. Keys: `max_conductor_limit`, `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`, `ramp_rate`, `recovery_bypass_time`, `auto_recovery` (true/false), `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password`, `wc_host` |
 | `POST /api/password` | `{"password":"…"}` | Change the device password (8 to 64 characters) |
 | `POST /api/setup/complete` | `{}` | Finish setup (needs a password); from then on the password is required |
 | `POST /api/restart` | `{}` | Reboot |
+| `GET /api/incidents` | | The last 3 incidents with time, causes and CSV link |
+| `GET /api/incidents/<id>.csv` | | Full recording: 10 min before to 3 min after the alarm, one row per second |
+| `POST /api/recovery` | `{"action":"start"}` or `{"action":"cancel"}` | Start or cancel a recovery by hand |
 | `POST /api/firmware` | `multipart/form-data` with the `.bin` file | Install new firmware and restart |
 | `POST /api/factory-reset` | `{}` | Same as the button reset |
 
@@ -126,8 +162,10 @@ Values that are not known yet are `null`.
 | Set mode | `teslawbc/select/mode/command` ← `Bypass`, `Manual` or `Pause` |
 | Set target current | `teslawbc/number/target_current/command` ← `10` |
 | Heartbeat | `teslawbc/button/heartbeat/command` ← `PRESS` |
-| Settings | `teslawbc/number/max_conductor_limit/command` (also `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`, `ramp_rate`) |
+| Settings | `teslawbc/number/max_conductor_limit/command` (also `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`, `ramp_rate`, `recovery_bypass_time`; `teslawbc/switch/auto_recovery/command` ← `ON`/`OFF`) |
 | Restart | `teslawbc/button/restart/command` ← `PRESS` |
+| Recovery | `teslawbc/button/recover_wall_connector/command` ← `PRESS`; `teslawbc/button/cancel_recovery/command` ← `PRESS` |
+| Incident | `teslawbc/incident` (retained JSON, same as one entry of `GET /api/incidents`), plus `teslawbc/text_sensor/last_incident/state` |
 | All values | `teslawbc/<type>/<name>/state`, with the names of the `values` keys above, e.g. `teslawbc/sensor/current_l1/state`, `teslawbc/binary_sensor/control_lost/state` (`ON`/`OFF`), `teslawbc/text_sensor/state/state` |
 | Online | `teslawbc/status` = `online`, or `offline` via the broker's last will |
 

@@ -10,7 +10,7 @@ Only needed for the optional automatic recovery (see README, *Automatic recovery
 |---|---|---|---|---|
 | Q1 | 1 | NPN transistor | BC337-40, TO-92 | 800 mA, hFE ≥ 250; BC337-25 or 2N2222A also work |
 | R1 | 1 | Resistor | 1 kΩ, 0.25 W | Base resistor, about 2.6 mA from GPIO13 |
-| R2 | 1 | Resistor | 10 kΩ, 0.25 W | Base pull-down: keeps the relay off while the ESP32 boots or if the wire comes loose |
+| R2 | 1 | Resistor | 330 Ω, 0.25 W | Pull-down on the GPIO13 input. Must be this low: the Olimex board has a 2.2 kΩ pull-up on GPIO13, which would switch the relay on while the ESP32 boots. With 330 Ω the input stays below 0.45 V when GPIO13 is not driven. When GPIO13 is high it draws about 10 mA through R2, well within the ESP32's limit |
 | D1 | 1 | Diode | 1N4148 (or 1N4007) | Flyback diode across the coil. The Finder module has its own protection; D1 is a cheap second line |
 | J1 | 1 | Screw terminal | 3-pole, 5.08 mm | To the ESP32: +5V, GND, GPIO13 |
 | J2 | 1 | Screw terminal | 2-pole, 5.08 mm | To the Finder coil: A1 (+), A2 (−) |
@@ -33,25 +33,29 @@ Elsewhere in the panel (already in the main parts list): Finder 38.51.7.005.0050
                                        ├────────── A2 (−) ─┘
                                        │
                                        C
- GPIO13 ───────────────── 3 ── R1 1k ── B   Q1 BC337
-                                │      E
-                              R2 10k   │
-                                │      │
- GND ──────────────────── 2 ───┴──────┴──── GND
+ GPIO13 ───────────────── 3 ──┬── R1 1k ── B   Q1 BC337
+                               │             E
+                            R2 330Ω          │
+                               │             │
+ GND ──────────────────── 2 ───┴─────────────┴──── GND
 ```
 
 - GPIO13 high → Q1 conducts → coil on → Finder contact closes → 230 V on the ABB coil → Wall Connector **off**.
-- GPIO13 low, floating or ESP32 off → R2 holds Q1 off → Finder open → ABB closed → Wall Connector **on**.
+- GPIO13 low, floating (ESP32 booting) or ESP32 off → R2 holds the input below 0.45 V against the board's 2.2 kΩ pull-up, Q1 stays off → Finder open → ABB closed → Wall Connector **on**.
 
 ## Wiring to the Olimex board
 
 | Driver J1 | Olimex ESP32-POE-ISO |
 |---|---|
-| 1: +5V | EXT1 pin 1 (+5V). Fed by PoE; the ISO board can supply about 300 mA to own circuits |
-| 2: GND | any GND pin |
-| 3: GPIO13 | the pin marked GPIO13 on the EXT header (check the silkscreen). GPIO13 is also UEXT pin 6; use only one of the two |
+| 1: +5V | EXT1 pin 1 (+5V). Fed by PoE; Olimex allows up to 0.4 A at 5 V, at most 2 W together with the 3.3 V output. The relay needs about 40 mA |
+| 2: GND | EXT1 pin 3 (GND) |
+| 3: GPIO13 | EXT2 pin 10, marked 13 on the silkscreen. GPIO13 is also UEXT pin 6; use only one of the two |
 
 The meter's RS-485 module uses UEXT pins 1 to 4 only, so GPIO13 is free.
+
+![EXT header pinout](esp32-poe-iso-ext-header.png)
+
+Pinout from Olimex, marked with the pins TeslaWBC uses.
 
 ## Checks before connecting the Finder
 

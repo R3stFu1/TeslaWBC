@@ -14,6 +14,7 @@ Only needed for the optional automatic recovery (see README, *Automatic recovery
 | D1 | 1 | Diode | 1N4148 (or 1N4007) | Flyback diode across the coil. The Finder module has its own protection; D1 is a cheap second line |
 | J1 | 1 | Screw terminal | 3-pole, 5.08 mm | To the ESP32: +5V, GND, GPIO13 |
 | J2 | 1 | Screw terminal | 2-pole, 5.08 mm | To the Finder coil: A1 (+), A2 (−) |
+| J3 | 1 | Pin header | 1 × 2, 2.54 mm, cut from a spare strip | Both pins on GND. Ground for the Wall Connector RS-485 module, since EXT2 has no GND pin |
 | — | 1 | Stripboard or perfboard | about 30 × 40 mm | |
 | — | 1 | Jumper cable | 3 wires, female 2.54 mm on the ESP32 end | +5V, GND, GPIO13 |
 | — | 1 | Housing or DIN-rail PCB carrier | fits 30 × 40 mm | Keeps the board closed in the panel |

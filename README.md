@@ -21,7 +21,10 @@ An ESP32 reads a dedicated energy meter on the wallbox feed and poses as the Neu
 | Charger (bus 2) | RXD | GPIO32 (TX) | GPIO header |
 | Charger (bus 2) | TXD | GPIO33 (RX) | GPIO header |
 | Recovery relay (optional) | IN | GPIO13 | UEXT pin 6 / GPIO header |
-| Both | VCC / GND | 3.3 V / GND | UEXT pins 1 and 2 |
+| Meter (bus 1) | VCC / GND | 3.3 V / GND | UEXT pins 1 and 2 |
+| Charger (bus 2) | VCC / GND | 3.3 V / GND | EXT1 pin 2 / GND pin J3 on the relay driver board |
+
+Terminal plans for the panel and the Wall Connector: [docs/terminal-plan-panel.png](docs/terminal-plan-panel.png), [docs/terminal-plan-wc.png](docs/terminal-plan-wc.png).
 
 The ESP32's TX goes to the module's RXD input. If a bus stays silent, swapping TX and RX at the module is the first thing to try.
 

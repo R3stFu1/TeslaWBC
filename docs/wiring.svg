@@ -84,8 +84,9 @@
   <rect x="615" y="440" width="110" height="50" rx="10" fill="#fff5ea" stroke="#d97706"/>
   <text x="670" y="461" text-anchor="middle" font-weight="600" fill="#1d2330">Driver</text>
   <text x="670" y="479" text-anchor="middle" fill="#5b6475" font-size="11">BC337 + diode</text>
-  <rect x="615" y="385" width="110" height="36" rx="8" fill="#f6f7f9" stroke="#9aa3b2"/>
-  <text x="670" y="408" text-anchor="middle" font-weight="600" fill="#1d2330" font-size="13">5 V supply</text>
+  <rect x="600" y="372" width="140" height="49" rx="8" fill="#f0fbf4" stroke="#16a34a"/>
+  <text x="670" y="392" text-anchor="middle" font-weight="600" fill="#1d2330" font-size="13">5 V from the board</text>
+  <text x="670" y="410" text-anchor="middle" fill="#5b6475" font-size="11">EXT1 pin 1, via PoE</text>
 
   <g stroke="#16a34a" stroke-width="3" fill="none">
     <path d="M740 373 L620 330"/>

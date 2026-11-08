@@ -75,7 +75,7 @@
 <text x="928" y="574" font-size="13" text-anchor="start" fill="#000">A2−</text>
 <text x="870" y="640" font-size="12" text-anchor="start" fill="#444" >Down to Box 3:</text>
 <text x="870" y="656" font-size="12" text-anchor="start" fill="#444" >L1 L2 L3 N switched by -K1,</text>
-<text x="870" y="672" font-size="12" text-anchor="start" fill="#444" >PE straight through</text>
+<text x="870" y="672" font-size="12" text-anchor="start" fill="#444" >PE through -X3 (PT 6-PE)</text>
 <text x="870" y="702" font-size="12" text-anchor="start" fill="#a01010" font-weight='bold'>-F2 (L) and -K1 A2 (N) must both</text>
 <text x="870" y="718" font-size="12" text-anchor="start" fill="#a01010" font-weight='bold'>be fed after the carport RCD -Q1</text>
 <text x="885" y="250" font-size="13" text-anchor="middle" fill="#000" font-weight='bold'>-X2</text>
@@ -91,6 +91,9 @@
 <path d="M899,310 L1105,310" fill="none" stroke="#00a0b0" stroke-width="3" stroke-linejoin="round" />
 <path d="M899,520 L920,520" fill="none" stroke="#d62728" stroke-width="3" stroke-linejoin="round" />
 <path d="M899,570 L920,570" fill="none" stroke="#111" stroke-width="3" stroke-linejoin="round" />
+<rect x="1276" y="689" width="28" height="22" fill="#ddd" stroke="#555"/>
+<text x="1290" y="705" font-size="12" text-anchor="middle" fill="#000" >1</text>
+<text x="1305" y="705" font-size="12" text-anchor="start" fill="#000" font-weight='bold'>-X3 PE</text>
 <circle cx="1130" cy="1000" r="4.5" fill="#fff" stroke="#000" stroke-width="1.5"/>
 <text x="1130" y="1022" font-size="13" text-anchor="middle" fill="#000">L1</text>
 <circle cx="1160" cy="1000" r="4.5" fill="#fff" stroke="#000" stroke-width="1.5"/>

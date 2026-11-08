@@ -24,7 +24,7 @@ An ESP32 reads a dedicated energy meter on the wallbox feed and poses as the Neu
 | Meter (bus 1) | VCC / GND | 3.3 V / GND | UEXT pins 1 and 2 |
 | Charger (bus 2) | VCC / GND | 3.3 V / GND | EXT1 pin 2 / GND pin J3 on the relay driver board |
 
-Full wiring diagram (low-voltage box, high-voltage box, Wall Connector): [docs/wiring-diagram.png](docs/wiring-diagram.png).
+Full wiring diagram (low-voltage box, high-voltage box, Wall Connector): [docs/wiring-diagram.png](docs/wiring-diagram.png). Cabinet layout: [docs/cabinet-layout.png](docs/cabinet-layout.png).
 
 The ESP32's TX goes to the module's RXD input. If a bus stays silent, swapping TX and RX at the module is the first thing to try.
 

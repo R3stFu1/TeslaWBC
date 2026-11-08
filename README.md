@@ -74,6 +74,8 @@ With a contactor in the Wall Connector's feed, TeslaWBC restores trust by itself
 
 It tries automatically at most once per 24 hours. If trust is lost again within that time, the alarm stays on for a person to look at. *Recover Wall Connector* (button, `POST /api/recovery`, MQTT) starts a recovery by hand, *Cancel Recovery* ends it. *Recovery Active* and *WC Power Cut* show what is happening.
 
+![Wiring overview](docs/wiring.svg)
+
 **Hardware** (electrician work, in the panel):
 - **Contactor:** 4-pole, all contacts **normally closed**, rated at least for the Wall Connector's breaker, switching L1, L2, L3 and N. Example: ABB ESB25-04N-06 (4 NC, 25 A AC-1, 230 V coil); the 40 A version for a larger breaker. Normally closed means the Wall Connector keeps its power when the coil, the relay or the ESP32 fails.
 - **Interface relay** for the coil, driven by GPIO13 (`recovery_relay_pin`): e.g. Finder 38.51.7.005.0050 (5 V coil) through a transistor, or a 3.3 V optocoupler relay module. GPIO13 stays low while the ESP32 boots.

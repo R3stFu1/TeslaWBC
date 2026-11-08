@@ -15,12 +15,12 @@ Only needed for the optional automatic recovery (see README, *Automatic recovery
 | J1 | 1 | Screw terminal | 3-pole, 5.08 mm | To the ESP32: +5V, GND, GPIO13 |
 | J2 | 1 | Screw terminal | 2-pole, 5.08 mm | To the Finder coil: A1 (+), A2 (−) |
 | J3 | 1 | Pin header | 1 × 2, 2.54 mm, cut from a spare strip | Both pins on GND. Ground for the Wall Connector RS-485 module, since EXT2 has no GND pin |
-| — | 1 | Stripboard or perfboard | about 30 × 40 mm | |
-| — | 1 | Jumper cable | 3 wires, female 2.54 mm on the ESP32 end | +5V, GND, GPIO13 |
-| — | 1 | Housing or DIN-rail PCB carrier | fits 30 × 40 mm | Keeps the board closed in the panel |
-| — | 1 | Pin header strip | 2.54 mm | Only if the Olimex EXT headers are not soldered yet |
+| — | 1 | Perfboard | 72 × 50 mm, cut from a 50 × 100 mm board (Reichelt H25PR050) | 72 mm is the width the DIN-rail holder takes |
+| — | 3 | Dupont jumper wires | female-female, 2.54 mm | +5V, GND, GPIO13 for the first setup. For the final installation, solder the wires onto the header pins |
+| — | 1 | DIN-rail PCB holder | Delock 65989, 5 cm long | Holds the perfboard on the rail in Box 1 |
+| — | 2 | Pin header | 1 × 10, 2.54 mm (Reichelt MPE 087-1-010) | Soldered into EXT1 and EXT2 of the Olimex board; spare pins for J3 |
 
-Elsewhere in the panel (already in the main parts list): Finder 38.51.7.005.0050 (5 V DC coil), ABB ESB25-04N-06 contactor, a 2 A fuse for the coil circuit.
+The driver board sits in Box 1 (low voltage). The Finder 38.51.7.005.0050 (5 V DC coil), the ABB ESB25-04N-06 contactor and the ABB S201-C2 breaker (F2) for the coil circuit are in Box 2. See [wiring-diagram.png](wiring-diagram.png), [cabinet-layout.png](cabinet-layout.png) and [parts-list.md](parts-list.md).
 
 ## Circuit
 

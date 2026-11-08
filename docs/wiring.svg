@@ -4,7 +4,7 @@
   </defs>
   <rect width="1240" height="800" fill="#ffffff"/>
   <text x="30" y="40" font-size="22" font-weight="700" fill="#1d2330">TeslaWBC wiring overview</text>
-  <text x="30" y="64" fill="#5b6475">Schematic, not to scale. Mains work (red) is for a licensed electrician.</text>
+  <text x="30" y="64" fill="#5b6475">Overview, not to scale; details in wiring-diagram.png. Mains (red): electrician.</text>
 
   <!-- legend -->
   <g transform="translate(860,28)">
@@ -17,12 +17,12 @@
   <!-- ===== power path ===== -->
   <g font-weight="600" fill="#1d2330">
     <rect x="60" y="100" width="260" height="60" rx="10" fill="#f6f7f9" stroke="#9aa3b2"/>
-    <text x="190" y="126" text-anchor="middle">Panel supply</text>
+    <text x="190" y="126" text-anchor="middle">Carport supply</text>
     <text x="190" y="146" text-anchor="middle" font-weight="400" fill="#5b6475" font-size="13">3-phase, 400 V</text>
 
     <rect x="60" y="200" width="260" height="60" rx="10" fill="#f6f7f9" stroke="#9aa3b2"/>
-    <text x="190" y="226" text-anchor="middle">Breaker + RCD</text>
-    <text x="190" y="246" text-anchor="middle" font-weight="400" fill="#5b6475" font-size="13">as installed for the Wall Connector</text>
+    <text x="190" y="226" text-anchor="middle">-Q1 breaker + RCD</text>
+    <text x="190" y="246" text-anchor="middle" font-weight="400" fill="#5b6475" font-size="13">existing, in the carport distribution</text>
 
     <rect x="60" y="300" width="260" height="70" rx="10" fill="#eef4ff" stroke="#1f6feb"/>
     <text x="190" y="328" text-anchor="middle">Crompton DRS-100-3P MOD</text>
@@ -106,7 +106,7 @@
     <text x="330" y="322" fill="#1f6feb">Modbus, 9600</text>
     <text x="330" y="574" fill="#1f6feb">Neurio meter,</text>
     <text x="330" y="589" fill="#1f6feb">115200</text>
-    <text x="330" y="485" fill="#d97706">230 V → A1</text>
+    <text x="330" y="485" fill="#d97706">L via F2 → A1</text>
     <text x="330" y="500" fill="#d97706">A2 → N</text>
   </g>
 

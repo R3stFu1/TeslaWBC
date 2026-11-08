@@ -18,13 +18,13 @@ An ESP32 reads a dedicated energy meter on the wallbox feed and poses as the Neu
 |---|---|---|---|
 | Meter (bus 1) | RXD | GPIO4 (TX) | UEXT pin 3 |
 | Meter (bus 1) | TXD | GPIO36 (RX) | UEXT pin 4 |
-| Charger (bus 2) | RXD | GPIO32 (TX) | GPIO header |
-| Charger (bus 2) | TXD | GPIO33 (RX) | GPIO header |
-| Recovery relay (optional) | IN | GPIO13 | UEXT pin 6 / GPIO header |
+| Charger (bus 2) | RXD | GPIO32 (TX) | EXT2 pin 6 |
+| Charger (bus 2) | TXD | GPIO33 (RX) | EXT2 pin 5 |
+| Recovery relay (optional) | Driver board J1:3 | GPIO13 | EXT2 pin 10 (+5V from EXT1 pin 1, GND from EXT1 pin 3) |
 | Meter (bus 1) | VCC / GND | 3.3 V / GND | UEXT pins 1 and 2 |
 | Charger (bus 2) | VCC / GND | 3.3 V / GND | EXT1 pin 2 / GND pin J3 on the relay driver board |
 
-Full wiring diagram (low-voltage box, high-voltage box, Wall Connector): [docs/wiring-diagram.png](docs/wiring-diagram.png). Cabinet layout: [docs/cabinet-layout.png](docs/cabinet-layout.png).
+Full wiring diagram (low-voltage box, high-voltage box, Wall Connector): [docs/wiring-diagram.png](docs/wiring-diagram.png). Cabinet layout: [docs/cabinet-layout.png](docs/cabinet-layout.png). Parts list for both boxes: [docs/parts-list.md](docs/parts-list.md).
 
 The ESP32's TX goes to the module's RXD input. If a bus stays silent, swapping TX and RX at the module is the first thing to try.
 

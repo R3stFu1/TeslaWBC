@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 800" width="1240" height="800" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#555"/></marker>
+  </defs>
+  <rect width="1240" height="800" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" font-weight="700" fill="#1d2330">TeslaWBC wiring overview</text>
+  <text x="30" y="64" fill="#5b6475">Overview, not to scale; details in wiring-diagram.png. Mains (red): electrician.</text>
+
+  <!-- legend -->
+  <g transform="translate(860,28)">
+    <line x1="0" y1="8" x2="36" y2="8" stroke="#c0392b" stroke-width="5"/><text x="44" y="13" fill="#1d2330">Mains L1 L2 L3 N</text>
+    <line x1="0" y1="30" x2="36" y2="30" stroke="#1f6feb" stroke-width="3"/><text x="44" y="35" fill="#1d2330">RS-485 / LAN data</text>
+    <line x1="0" y1="52" x2="36" y2="52" stroke="#d97706" stroke-width="3"/><text x="44" y="57" fill="#1d2330">Relay control</text>
+    <line x1="190" y1="30" x2="226" y2="30" stroke="#16a34a" stroke-width="3"/><text x="234" y="35" fill="#1d2330">3.3 V UART</text>
+  </g>
+
+  <!-- ===== power path ===== -->
+  <g font-weight="600" fill="#1d2330">
+    <rect x="60" y="100" width="260" height="60" rx="10" fill="#f6f7f9" stroke="#9aa3b2"/>
+    <text x="190" y="126" text-anchor="middle">Carport supply</text>
+    <text x="190" y="146" text-anchor="middle" font-weight="400" fill="#5b6475" font-size="13">3-phase, 400 V</text>
+
+    <rect x="60" y="200" width="260" height="60" rx="10" fill="#f6f7f9" stroke="#9aa3b2"/>
+    <text x="190" y="226" text-anchor="middle">-Q1 breaker + RCD</text>
+    <text x="190" y="246" text-anchor="middle" font-weight="400" fill="#5b6475" font-size="13">existing, in the carport distribution</text>
+
+    <rect x="60" y="300" width="260" height="70" rx="10" fill="#eef4ff" stroke="#1f6feb"/>
+    <text x="190" y="328" text-anchor="middle">Crompton DRS-100-3P MOD</text>
+    <text x="190" y="348" text-anchor="middle" font-weight="400" fill="#5b6475" font-size="13">measures the wallbox feed only</text>
+
+    <rect x="60" y="420" width="260" height="90" rx="10" fill="#fff5ea" stroke="#d97706"/>
+    <text x="190" y="448" text-anchor="middle">ABB ESB25-04N-06</text>
+    <text x="190" y="468" text-anchor="middle" font-weight="400" fill="#5b6475" font-size="13">contactor, 4 × normally closed</text>
+    <text x="190" y="488" text-anchor="middle" font-weight="400" fill="#5b6475" font-size="13">coil A1/A2 230 V: on = WC off</text>
+
+    <rect x="60" y="560" width="260" height="80" rx="10" fill="#eef4ff" stroke="#1f6feb"/>
+    <text x="190" y="590" text-anchor="middle">Tesla Wall Connector Gen 3</text>
+    <text x="190" y="610" text-anchor="middle" font-weight="400" fill="#5b6475" font-size="13">RS-485 terminals: red A+, white B−</text>
+
+    <rect x="110" y="690" width="160" height="50" rx="10" fill="#f6f7f9" stroke="#9aa3b2"/>
+    <text x="190" y="720" text-anchor="middle">Car</text>
+  </g>
+  <g stroke="#c0392b" stroke-width="5">
+    <line x1="190" y1="160" x2="190" y2="200"/>
+    <line x1="190" y1="260" x2="190" y2="300"/>
+    <line x1="190" y1="370" x2="190" y2="420"/>
+    <line x1="190" y1="510" x2="190" y2="560"/>
+  </g>
+  <g fill="#c0392b" font-size="12" font-weight="600">
+    <text x="200" y="185">L1 L2 L3 N</text><text x="200" y="285">L1 L2 L3 N</text>
+    <text x="200" y="400">L1 L2 L3 N</text><text x="200" y="540">L1 L2 L3 N</text>
+  </g>
+  <line x1="190" y1="640" x2="190" y2="690" stroke="#555" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="200" y="670" fill="#5b6475" font-size="12">Type 2 cable</text>
+
+  <!-- ===== ESP32 ===== -->
+  <rect x="740" y="290" width="300" height="240" rx="12" fill="#f0fbf4" stroke="#16a34a" stroke-width="2"/>
+  <text x="890" y="318" text-anchor="middle" font-weight="700" fill="#1d2330">Olimex ESP32-POE-ISO</text>
+  <text x="890" y="338" text-anchor="middle" fill="#5b6475" font-size="13">TeslaWBC firmware</text>
+  <g font-size="13" fill="#1d2330">
+    <text x="756" y="378">GPIO4 TX / GPIO36 RX</text><text x="1024" y="378" text-anchor="end" fill="#5b6475">meter UART</text>
+    <text x="756" y="470">GPIO13</text><text x="1024" y="470" text-anchor="end" fill="#5b6475">recovery relay</text>
+    <text x="756" y="498">GPIO32 TX / GPIO33 RX</text><text x="1024" y="498" text-anchor="end" fill="#5b6475">charger UART</text>
+  </g>
+
+  <!-- LAN -->
+  <rect x="780" y="110" width="220" height="70" rx="10" fill="#eef4ff" stroke="#1f6feb"/>
+  <text x="890" y="138" text-anchor="middle" font-weight="600" fill="#1d2330">PoE switch / LAN</text>
+  <text x="890" y="158" text-anchor="middle" fill="#5b6475" font-size="13">Aperta, Mosquitto</text>
+  <line x1="890" y1="180" x2="890" y2="290" stroke="#1f6feb" stroke-width="3"/>
+  <text x="900" y="240" fill="#1f6feb" font-size="12" font-weight="600">Ethernet + power (PoE)</text>
+  <text x="900" y="256" fill="#5b6475" font-size="12">REST /api, MQTT, web page</text>
+
+  <!-- RS485 modules and recovery relay -->
+  <rect x="430" y="300" width="190" height="60" rx="10" fill="#eef4ff" stroke="#1f6feb"/>
+  <text x="525" y="326" text-anchor="middle" font-weight="600" fill="#1d2330">RS-485 module 1</text>
+  <text x="525" y="345" text-anchor="middle" fill="#5b6475" font-size="12">Waveshare TTL TO RS485 (B)</text>
+  <rect x="430" y="570" width="190" height="60" rx="10" fill="#eef4ff" stroke="#1f6feb"/>
+  <text x="525" y="596" text-anchor="middle" font-weight="600" fill="#1d2330">RS-485 module 2</text>
+  <text x="525" y="615" text-anchor="middle" fill="#5b6475" font-size="12">Waveshare TTL TO RS485 (B)</text>
+  <rect x="430" y="435" width="170" height="60" rx="10" fill="#fff5ea" stroke="#d97706"/>
+  <text x="515" y="461" text-anchor="middle" font-weight="600" fill="#1d2330">Finder 38.51 relay</text>
+  <text x="515" y="480" text-anchor="middle" fill="#5b6475" font-size="12">5 V coil, 230 V contact</text>
+  <rect x="615" y="440" width="110" height="50" rx="10" fill="#fff5ea" stroke="#d97706"/>
+  <text x="670" y="461" text-anchor="middle" font-weight="600" fill="#1d2330">Driver</text>
+  <text x="670" y="479" text-anchor="middle" fill="#5b6475" font-size="11">BC337 + diode</text>
+  <rect x="608" y="374" width="124" height="47" rx="8" fill="#f0fbf4" stroke="#16a34a"/>
+  <text x="670" y="392" text-anchor="middle" font-weight="600" fill="#1d2330" font-size="12">5 V from board</text>
+  <text x="670" y="410" text-anchor="middle" fill="#5b6475" font-size="10">EXT1 pin 1, PoE</text>
+
+  <g stroke="#16a34a" stroke-width="3" fill="none">
+    <path d="M740 365 L620 330"/>
+    <path d="M740 493 L620 600"/>
+  </g>
+  <g stroke="#1f6feb" stroke-width="3" fill="none">
+    <line x1="430" y1="330" x2="320" y2="335"/>
+    <line x1="430" y1="600" x2="320" y2="600"/>
+  </g>
+  <g stroke="#d97706" stroke-width="3" fill="none">
+    <line x1="740" y1="465" x2="725" y2="465"/>
+    <line x1="615" y1="465" x2="600" y2="465"/>
+    <line x1="430" y1="465" x2="320" y2="465"/>
+    <line x1="670" y1="421" x2="670" y2="440"/>
+  </g>
+  <g font-size="12" font-weight="600">
+    <text x="330" y="322" fill="#1f6feb">Modbus, 9600</text>
+    <text x="330" y="574" fill="#1f6feb">Neurio meter,</text>
+    <text x="330" y="589" fill="#1f6feb">115200</text>
+    <text x="330" y="485" fill="#d97706">L via F2 → A1</text>
+    <text x="330" y="500" fill="#d97706">A2 → N</text>
+  </g>
+
+  <!-- notes -->
+  <g font-size="13" fill="#1d2330">
+    <text x="440" y="700" font-weight="700">How the recovery works</text>
+    <text x="440" y="722">GPIO13 off (normal): relay open, contactor coil off, contacts closed, Wall Connector has power.</text>
+    <text x="440" y="742">GPIO13 on (recovery, 1 min): relay closes, coil on, contacts open, Wall Connector off.</text>
+    <text x="440" y="762">If the ESP32, relay or coil fails, the contacts stay closed and the Wall Connector keeps running.</text>
+  </g>
+</svg>

@@ -85,7 +85,7 @@ With a multimeter on the screw terminals, board not connected:
 | Between | Expect |
 |---|---|
 | J1 +5V and J1 GND | open (no short) |
-| J1 IO13 and J1 GND | about 330 Ω |
+| J1 IO13 and J1 GND | about 330 Ω (a little less in one direction is fine, that is Q1 conducting through R1) |
 | J1 +5V and J2 A1 | 0 Ω |
 | J2 A1 and J2 A2 | diode test: about 0.6 V with the black lead on A1, open the other way |
 | J3 pins and J1 GND | 0 Ω |

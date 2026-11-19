@@ -18,6 +18,7 @@ Only needed for the optional automatic recovery (see README, *Automatic recovery
 | — | 1 | Perfboard | 72 × 50 mm, cut from a 50 × 100 mm board (Reichelt H25PR050) | 72 mm is the width the DIN-rail holder takes |
 | — | 3 | Dupont jumper wires | female-female, 2.54 mm | +5V, GND, GPIO13 for the first setup. For the final installation, solder the wires onto the header pins |
 | — | 1 | DIN-rail PCB holder | Delock 65989, 5 cm long | Holds the perfboard on the rail in Box 1 |
+| — | ~15 cm | Solid wire for the links | 0.6 to 0.8 mm, bare | One conductor stripped from leftover J-Y(St)Y cable works. Cut-off resistor legs do for the two short bridges |
 | — | 2 | Pin header | 1 × 10, 2.54 mm (Reichelt MPE 087-1-010) | Soldered into EXT1 and EXT2 of the Olimex board; spare pins for J3 |
 
 The driver board sits in Box 1 (low voltage). The Finder 38.51.7.005.0050 (5 V DC coil), the ABB ESB25-04N-06 contactor and the ABB S201-C2 breaker (F2) for the coil circuit are in Box 2. See [wiring-diagram.png](wiring-diagram.png), [cabinet-layout.png](cabinet-layout.png) and [parts-list.md](parts-list.md).
@@ -57,6 +58,39 @@ The meter's RS-485 module uses UEXT pins 1 to 4 only, so GPIO13 is free.
 ![EXT header pinout](esp32-poe-iso-ext-header.png)
 
 Pinout from Olimex, marked with the pins TeslaWBC uses.
+
+## Perfboard layout
+
+![Perfboard layout](relay-driver-layout.png)
+
+Columns are lettered A to V (no I, O or Q), rows numbered 1 to 28 from the J1 edge. The solder-side view is mirrored, so it matches the board when you turn it over.
+
+### Build steps
+
+1. **Cut the board.** Count 28 hole rows on the 100 mm side and cut along the next row of holes (score both sides, snap, sand). The 50 mm side keeps its 19 columns. Check it slides into the Delock holder; rows 1 and 28 sit in the grooves, so nothing goes there.
+2. **Test-fit the screw terminals.** The holes are 1.0 mm. If the terminal pins don't go in, drill G4, J4, L4, G24 and J24 to 1.3 mm.
+3. **Fit the low parts first**, then the taller ones: R2 (J11 to P11), R1 (K15 to P15), D1 (G19 to K19, band on G19), Q1 (E J14, B J15, C J16, flat side facing R1, about 5 mm of leg), J3 (J7, J8), J1 (G4, J4, L4, openings to the edge), J2 (G24, J24, openings to the edge).
+4. **Lay the wires on the solder side** and solder them at every circled pad:
+   - red +5V: G4 to G24;
+   - black GND: J4 to J14;
+   - green IO13: L4 to L6, across to P6, down to P15;
+   - orange coil −: J16 to J24.
+5. **Make the two short bridges**: J15 to K15 (base), J19 to K19 (diode anode).
+6. **Check for stray solder** between J14, J15 and J16 (the transistor legs). J15 may only connect to K15.
+
+### Tests before connecting anything
+
+With a multimeter on the screw terminals, board not connected:
+
+| Between | Expect |
+|---|---|
+| J1 +5V and J1 GND | open (no short) |
+| J1 IO13 and J1 GND | about 330 Ω |
+| J1 +5V and J2 A1 | 0 Ω |
+| J2 A1 and J2 A2 | diode test: about 0.6 V with the black lead on A1, open the other way |
+| J3 pins and J1 GND | 0 Ω |
+
+Then continue with the checks below.
 
 ## Checks before connecting the Finder
 

@@ -49,4 +49,4 @@ The X3 power terminals need a 2.5 mm² feed cable. If the feed is thicker, wire 
 | – | LAN cable PoE switch ↔ Box 1 | check |
 | – | Power wiring in Box 2, cable to the Wall Connector | electrician |
 
-Drawings: [wiring-diagram.png](wiring-diagram.png), [cabinet-layout.png](cabinet-layout.png).
+Drawings: [wiring-diagram.png](wiring-diagram.png), [cabinet-layout.png](cabinet-layout.png), [box1-wiring.png](box1-wiring.png).

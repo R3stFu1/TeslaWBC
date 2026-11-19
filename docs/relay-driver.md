@@ -21,7 +21,7 @@ Only needed for the optional automatic recovery (see README, *Automatic recovery
 | — | ~15 cm | Solid wire for the links | 0.6 to 0.8 mm, bare | One conductor stripped from leftover J-Y(St)Y cable works. Cut-off resistor legs do for the two short bridges |
 | — | 2 | Pin header | 1 × 10, 2.54 mm (Reichelt MPE 087-1-010) | Soldered into EXT1 and EXT2 of the Olimex board; spare pins for J3 |
 
-The driver board sits in Box 1 (low voltage). The Finder 38.51.7.005.0050 (5 V DC coil), the ABB ESB25-04N-06 contactor and the ABB S201-C2 breaker (F2) for the coil circuit are in Box 2. See [wiring-diagram.png](wiring-diagram.png), [cabinet-layout.png](cabinet-layout.png) and [parts-list.md](parts-list.md).
+The driver board sits in Box 1 (low voltage). The Finder 38.51.7.005.0050 (5 V DC coil), the ABB ESB25-04N-06 contactor and the ABB S201-C2 breaker (F2) for the coil circuit are in Box 2. See [wiring-diagram.png](wiring-diagram.png), [cabinet-layout.png](cabinet-layout.png), [box1-wiring.png](box1-wiring.png) (Box 1 as built) and [parts-list.md](parts-list.md).
 
 ## Circuit
 

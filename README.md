@@ -21,6 +21,7 @@ An ESP32 reads a dedicated energy meter on the wallbox feed and poses as the Neu
 | Charger (bus 2) | RXD | GPIO32 (TX) | GPIO header |
 | Charger (bus 2) | TXD | GPIO33 (RX) | GPIO header |
 | Both | VCC / GND | 3.3 V / GND | UEXT pins 1 and 2 |
+| Relay driver | input | GPIO13 (high = Wall Connector off) | EXT2 pin 10 |
 
 The ESP32's TX goes to the module's RXD input. If a bus stays silent, swapping TX and RX at the module is the first thing to try.
 
@@ -69,6 +70,11 @@ The logic is in [`teslawbc/control.h`](teslawbc/control.h), plain C++ with no ES
 | State | text sensor | Stock, Charging, Paused, Fallback charging, Fallback paused, Meter fault |
 | Meter OK, Charger Polling, Fallback Active | binary sensor | Health |
 | Charger Poll Interval | sensor | About 190 ms when the charger is polling |
+| Wall Connector Power Cut | switch | GPIO13 to the relay driver. ON cuts the Wall Connector's supply through the normally-closed contactor. Always OFF after a boot, and switches itself off after 60 s |
+
+## Status page
+
+Open `http://<device IP>/` (for example `http://192.168.17.102/`) in a browser on the same network. It shows every sensor above and lets you change the mode, the numbers and the power cut. The page is served by the ESP32 itself and needs no internet. It has no password, so keep the device on a trusted LAN.
 
 Solar surplus, schedules and tariffs are Home Assistant automations that set Mode and Target Current. Home Assistant counts as present while it is connected and subscribed to the device. An automation that stops writing does not trigger the fallback, so guard it in Home Assistant if needed.
 

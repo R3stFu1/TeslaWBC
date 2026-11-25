@@ -28,9 +28,14 @@ substitutions:
   # never polls, try 9600 (see README, commissioning).
   charger_baud: "115200"
 
+  # Relay driver in box 2 (Finder 38.51, then the normally-closed ABB contactor
+  # in the Wall Connector's feed). GPIO13 high = Wall Connector OFF.
+  power_cut_pin: GPIO13
+
   # Fixed safety parameters
   pause_margin_a: "2.0"     # pause = report L + this
   meter_timeout_ms: "3000"  # no valid meter reading for this long = meter fault
+  power_cut_max_s: "60"     # the power cut switches itself off after this
 
 esphome:
   name: ${device_name}
@@ -69,6 +74,14 @@ api:
     key: !secret api_encryption_key
   # Never reboot because Home Assistant is away: the fallback target handles that.
   reboot_timeout: 0s
+
+# Status page in the browser: http://<device IP>/
+# Shows every sensor and lets you change the controls, including the power cut.
+# It has no password, so keep the device on a trusted LAN.
+web_server:
+  port: 80
+  version: 3
+  local: true  # serve the page from the ESP32, no internet needed
 
 # OTA updates use the API encryption key.
 ota:
@@ -118,6 +131,12 @@ globals:
     initial_value: "NAN"
 
 script:
+  # Switches the power cut off again after a fixed time (see switch: below).
+  - id: power_cut_timer
+    mode: restart
+    then:
+      - delay: ${power_cut_max_s}s
+      - switch.turn_off: power_cut
   - id: recompute
     mode: single
     then:
@@ -531,6 +550,34 @@ number:
     initial_value: 5
     optimistic: true
     restore_value: true
+
+# =============================================================================
+# Wall Connector power cut (relay driver on GPIO13, box 2)
+# ON energizes the Finder relay, which energizes the normally-closed ABB
+# contactor and cuts the Wall Connector's supply. Always OFF after a boot, so
+# a reboot never cuts the charger, and it switches itself OFF after
+# ${power_cut_max_s} s in case it is forgotten.
+# The 2.2 kOhm pull-up on GPIO13 is held down by R2 (330 Ohm) on the driver
+# board while the ESP32 boots.
+# =============================================================================
+switch:
+  - platform: gpio
+    id: power_cut
+    name: "Wall Connector Power Cut"
+    icon: mdi:power-plug-off
+    pin: ${power_cut_pin}
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - logger.log:
+          level: WARN
+          tag: teslawbc
+          format: "Wall Connector power cut ON"
+      - script.execute: power_cut_timer
+    on_turn_off:
+      - script.stop: power_cut_timer
+      - logger.log:
+          tag: teslawbc
+          format: "Wall Connector power cut OFF"
 
 button:
   - platform: restart

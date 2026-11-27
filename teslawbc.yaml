@@ -36,6 +36,7 @@ substitutions:
   recovery_power_off_s: "60"  # how long the Wall Connector is switched off
 
   # Fixed safety parameters
+  wallbox_max_a: "16"       # Wall Connector install and car: 16 A three-phase. Caps every current setting
   pause_margin_a: "2.0"     # pause = report L + this
   meter_timeout_ms: "3000"  # no valid meter reading for this long = meter fault
 
@@ -145,10 +146,12 @@ teslawbc_web:
     - firmware_text
     - ip_address_text
 
+# Same secret name as the first (status page) build, so a network update
+# from that build authenticates with the key already on the device.
 ota:
   - platform: esphome
     encryption:
-      key: !secret ota_encryption_key
+      key: !secret api_encryption_key
 
 # =============================================================================
 # State shared between the meter, the control logic and the Neurio emulation.
@@ -218,6 +221,7 @@ script:
           cfg.conductor_limit = id(conductor_limit).state;
           cfg.max_output = id(max_output_current).state;
           cfg.min_current = id(min_current).state;
+          cfg.hard_max = ${wallbox_max_a};
           cfg.pause_margin = ${pause_margin_a};
           cfg.fallback_target = id(fallback_target).state;
           cfg.fallback_timeout_ms = (uint32_t) (id(fallback_timeout).state * 60000.0f);
@@ -740,7 +744,7 @@ number:
     device_class: current
     mode: box
     min_value: 0
-    max_value: 32
+    max_value: ${wallbox_max_a}
     step: 1
     initial_value: 6
     optimistic: true
@@ -772,7 +776,7 @@ number:
     device_class: current
     mode: box
     min_value: 6
-    max_value: 48
+    max_value: ${wallbox_max_a}
     step: 1
     initial_value: 16
     optimistic: true
@@ -804,7 +808,7 @@ number:
     device_class: current
     mode: box
     min_value: 0
-    max_value: 32
+    max_value: ${wallbox_max_a}
     step: 1
     initial_value: 6
     optimistic: true

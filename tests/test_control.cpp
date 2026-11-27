@@ -93,8 +93,12 @@ static void test_target_is_clamped() {
   CHECK(near(r.effective_target, 16.0f));  // I_max
   CHECK(near(r.reported, 2.0f));
   // I_max above L is capped at L.
+  cfg.conductor_limit = 14.0f;
+  CHECK(near(compute(cfg, in).effective_target, 14.0f));
+  // Never above the hard maximum (16 A), whatever I_max and L say.
+  cfg.conductor_limit = 25.0f;
   cfg.max_output = 20.0f;
-  CHECK(near(compute(cfg, in).effective_target, 18.0f));
+  CHECK(near(compute(cfg, in).effective_target, 16.0f));
 }
 
 static void test_target_below_minimum_pauses() {

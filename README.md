@@ -212,6 +212,10 @@ cp secrets.yaml.example secrets.yaml   # then put in a fresh OTA key: openssl ra
 esphome run teslawbc.yaml              # first flash over micro-USB, later over the network
 ```
 
+Updating a device that already runs an earlier TeslaWBC build: keep its `secrets.yaml`. The OTA key (`api_encryption_key`) must stay the same, or the device refuses the network upload.
+
+All current settings (Target Current, Max Output Current, Fallback Target) go up to 16 A, the limit of this Wall Connector install and the car. The control logic also never steers above 16 A, whatever is stored. To change it, edit `wallbox_max_a` in `teslawbc.yaml`.
+
 Flash over USB only while the board is **not** powered by PoE, or use a USB isolator.
 
 Then open `http://<ip>/`: the setup wizard takes you through the rest.

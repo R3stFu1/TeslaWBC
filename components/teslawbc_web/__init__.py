@@ -23,6 +23,7 @@ DEPENDENCIES = ["network", "ota"]
 CONF_MODE = "mode"
 CONF_TARGET = "target"
 CONF_HEARTBEAT = "heartbeat"
+CONF_WALLBOX = "wallbox"
 CONF_SETTINGS = "settings"
 CONF_SWITCHES = "switches"
 CONF_SENSORS = "sensors"
@@ -39,6 +40,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_MODE): cv.use_id(select.Select),
         cv.Required(CONF_TARGET): cv.use_id(number.Number),
         cv.Required(CONF_HEARTBEAT): cv.use_id(button.Button),
+        cv.Optional(CONF_WALLBOX): cv.use_id(switch.Switch),
         cv.Optional(CONF_SETTINGS, default=[]): cv.ensure_list(cv.use_id(number.Number)),
         cv.Optional(CONF_SWITCHES, default=[]): cv.ensure_list(cv.use_id(switch.Switch)),
         cv.Optional(CONF_SENSORS, default=[]): cv.ensure_list(cv.use_id(sensor.Sensor)),
@@ -73,6 +75,8 @@ async def to_code(config):
     cg.add(var.set_mode(await cg.get_variable(config[CONF_MODE])))
     cg.add(var.set_target(await cg.get_variable(config[CONF_TARGET])))
     cg.add(var.set_heartbeat(await cg.get_variable(config[CONF_HEARTBEAT])))
+    if CONF_WALLBOX in config:
+        cg.add(var.set_wallbox(await cg.get_variable(config[CONF_WALLBOX])))
     for conf in config[CONF_SETTINGS]:
         cg.add(var.add_setting(await cg.get_variable(conf)))
     for conf in config[CONF_SWITCHES]:

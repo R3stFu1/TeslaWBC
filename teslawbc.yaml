@@ -36,6 +36,7 @@ substitutions:
   recovery_power_off_s: "60"  # how long the Wall Connector is switched off
 
   # Fixed safety parameters
+  wallbox_max_a: "16"       # Wall Connector install and car: 16 A three-phase. Caps every current setting
   pause_margin_a: "2.0"     # pause = report L + this
   meter_timeout_ms: "3000"  # no valid meter reading for this long = meter fault
 
@@ -98,6 +99,7 @@ teslawbc_web:
   mode: mode_select
   target: target_current
   heartbeat: heartbeat_button
+  wallbox: wallbox_enabled
   settings:
     - conductor_limit
     - max_output_current
@@ -145,10 +147,12 @@ teslawbc_web:
     - firmware_text
     - ip_address_text
 
+# Same secret name as the first (status page) build, so a network update
+# from that build authenticates with the key already on the device.
 ota:
   - platform: esphome
     encryption:
-      key: !secret ota_encryption_key
+      key: !secret api_encryption_key
 
 # =============================================================================
 # State shared between the meter, the control logic and the Neurio emulation.
@@ -218,6 +222,7 @@ script:
           cfg.conductor_limit = id(conductor_limit).state;
           cfg.max_output = id(max_output_current).state;
           cfg.min_current = id(min_current).state;
+          cfg.hard_max = ${wallbox_max_a};
           cfg.pause_margin = ${pause_margin_a};
           cfg.fallback_target = id(fallback_target).state;
           cfg.fallback_timeout_ms = (uint32_t) (id(fallback_timeout).state * 60000.0f);
@@ -275,11 +280,13 @@ script:
 
           // Automatic recovery: cut the Wall Connector's power, then Bypass.
           teslawbc::RecoverySettings rs;
-          rs.auto_enabled = id(auto_recovery).state;
+          // Wallbox switched off: hold the power cut, no recovery.
+          bool wallbox_on = id(wallbox_enabled).state;
+          rs.auto_enabled = id(auto_recovery).state && wallbox_on;
           rs.power_off_ms = ${recovery_power_off_s} * 1000u;
           rs.bypass_ms = (uint32_t) (id(recovery_bypass_time).state * 60000.0f);
           bool rec_started = false;
-          bool cut = id(web).update_recovery(rs, in.now_ms, lost, &rec_started);
+          bool cut = id(web).update_recovery(rs, in.now_ms, lost, &rec_started) || !wallbox_on;
           if (cut != id(wc_power_cut)) {
             id(wc_power_cut) = cut;
             if (cut) {
@@ -740,7 +747,7 @@ number:
     device_class: current
     mode: box
     min_value: 0
-    max_value: 32
+    max_value: ${wallbox_max_a}
     step: 1
     initial_value: 6
     optimistic: true
@@ -772,7 +779,7 @@ number:
     device_class: current
     mode: box
     min_value: 6
-    max_value: 48
+    max_value: ${wallbox_max_a}
     step: 1
     initial_value: 16
     optimistic: true
@@ -804,7 +811,7 @@ number:
     device_class: current
     mode: box
     min_value: 0
-    max_value: 32
+    max_value: ${wallbox_max_a}
     step: 1
     initial_value: 6
     optimistic: true
@@ -853,6 +860,26 @@ number:
     restore_value: true
 
 switch:
+  # Wallbox on/off for presence automations (e.g. car away = off).
+  # OFF holds the Wall Connector's power cut (GPIO13) until switched ON again,
+  # and blocks recoveries. The state survives a reboot; GPIO13 itself stays
+  # low while the ESP32 boots and is set again by the first control cycle.
+  - platform: template
+    id: wallbox_enabled
+    name: "Wallbox Enabled"
+    icon: mdi:ev-station
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_on:
+      - logger.log:
+          tag: teslawbc
+          format: "Wallbox switched ON"
+    on_turn_off:
+      - lambda: id(web).cancel_recovery();
+      - logger.log:
+          level: WARN
+          tag: teslawbc
+          format: "Wallbox switched OFF: power cut held"
   # Off by default: switch on once the contactor is installed.
   - platform: template
     id: auto_recovery
@@ -887,7 +914,9 @@ button:
     name: "Recover Wall Connector"
     icon: mdi:restart-alert
     on_press:
-      - lambda: id(web).start_recovery();
+      - lambda: |-
+          if (id(wallbox_enabled).state) id(web).start_recovery();
+          else ESP_LOGW("teslawbc", "Recovery refused: wallbox is switched off");
   - platform: template
     id: cancel_recovery_button
     name: "Cancel Recovery"

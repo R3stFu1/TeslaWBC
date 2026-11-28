@@ -53,6 +53,7 @@ inline const char *state_name(State s) {
 struct Settings {
   float conductor_limit = 18.0f;  // L, must match "Max Conductor Limit" in the Tesla app
   float max_output = 16.0f;       // I_max, must match "Max Output Current" in the Tesla app
+  float hard_max = 16.0f;         // what the Wall Connector install and the car take; never above
   float min_current = 6.0f;       // lowest current a car accepts; below this we pause
   float pause_margin = 2.0f;      // how far above L we report to pause
   float fallback_target = 6.0f;   // used when Aperta is silent; < min_current = pause
@@ -88,7 +89,8 @@ inline Result compute(const Settings &cfg, const Inputs &in) {
   const float limit = cfg.conductor_limit;
   // Target ceiling: the charger never gives more than I_max, and T above L
   // would make L - T negative, which could report less than the car draws.
-  const float t_max = cfg.max_output < limit ? cfg.max_output : limit;
+  float t_max = cfg.max_output < limit ? cfg.max_output : limit;
+  if (t_max > cfg.hard_max) t_max = cfg.hard_max;
 
   // Meter health: a reading must be recent and every phase must be a number.
   bool meter_ok = in.meter_seen && (uint32_t) (in.now_ms - in.last_meter_ms) <= cfg.meter_timeout_ms;

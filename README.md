@@ -85,6 +85,10 @@ It tries automatically at most once per 24 hours. If trust is lost again within 
 
 *Auto Recovery* is off by default. Switch it on (Settings) once the contactor is installed and tested with *Recover Wall Connector*.
 
+### Wallbox on/off
+
+*Wallbox Enabled* (`POST /api/control` with `{"wallbox_enabled":false}`, MQTT `teslawbc/switch/wallbox_enabled/command` ← `OFF`, or the On/Off buttons on the Status page) switches the Wall Connector off completely: the contactor cuts its power until it is switched on again. Meant for presence automations, e.g. off while the car is away. While it is off, no recovery runs and a manual one is refused. The state survives a reboot. GPIO13 still stays low while the ESP32 boots, so after a reboot with the wallbox off the Wall Connector gets power for the few seconds until the first control cycle cuts it again. After switching on, the Wall Connector needs about a minute to start, then TeslaWBC carries on in the mode Aperta set.
+
 ### Incident log
 
 TeslaWBC records one sample per second of the last 10 minutes: the three meter currents, the value served to the charger, target, Wall Connector vehicle current, poll interval, mode, state and flags. When *Control Lost* is raised it keeps that recording plus the 3 minutes after, and looks for the known distrust triggers in the 10 minutes before the alarm:
@@ -131,7 +135,7 @@ Both interfaces offer the same functions; Aperta can use either or both.
 | Method and path | Body | Purpose |
 |---|---|---|
 | `GET /api/status` | | Mode, target, and every live value in one object (see below) |
-| `POST /api/control` | `{"mode":"Manual","target":10}` (either key optional) | Set mode and/or target. Every call also counts as heartbeat |
+| `POST /api/control` | `{"mode":"Manual","target":10}`, `{"wallbox_enabled":false}` (any key optional) | Set mode, target and/or switch the wallbox on or off. Every call also counts as heartbeat |
 | `POST /api/heartbeat` | `{}` | Sign of life only |
 | `GET /api/settings` | | Charging settings with ranges, MQTT broker and user, Wall Connector address |
 | `POST /api/settings` | e.g. `{"max_conductor_limit":18,"mqtt_host":"192.168.1.10"}` | Change any subset. Keys: `max_conductor_limit`, `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`, `ramp_rate`, `recovery_bypass_time`, `auto_recovery` (true/false), `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password`, `wc_host` |
@@ -148,7 +152,7 @@ Example `GET /api/status`:
 
 ```json
 {"name":"teslawbc","firmware":"0.1.0","uptime_s":4211,"setup_done":true,
- "mode":"Manual","target":10,"mqtt_connected":true,
+ "mode":"Manual","target":10,"wallbox_enabled":true,"mqtt_connected":true,
  "values":{"state":"Charging","effective_target":10,"reported_current":18.1,
    "current_l1":9.9,"current_l2":10.1,"current_l3":9.8,"voltage_l1":231.2,"voltage_l2":229.8,"voltage_l3":230.5,
    "power_l1":2290,"power_l2":2321,"power_l3":2259,"power":6870,"frequency":50.01,"energy":1234.56,
@@ -167,6 +171,7 @@ Values that are not known yet are `null`.
 | Set mode | `teslawbc/select/mode/command` ← `Bypass`, `Manual` or `Pause` |
 | Set target current | `teslawbc/number/target_current/command` ← `10` |
 | Heartbeat | `teslawbc/button/heartbeat/command` ← `PRESS` |
+| Wallbox on/off | `teslawbc/switch/wallbox_enabled/command` ← `ON` / `OFF`; state on `teslawbc/switch/wallbox_enabled/state` |
 | Settings | `teslawbc/number/max_conductor_limit/command` (also `max_output_current`, `min_current`, `fallback_target`, `fallback_timeout`, `ramp_rate`, `recovery_bypass_time`; `teslawbc/switch/auto_recovery/command` ← `ON`/`OFF`) |
 | Restart | `teslawbc/button/restart/command` ← `PRESS` |
 | Recovery | `teslawbc/button/recover_wall_connector/command` ← `PRESS`; `teslawbc/button/cancel_recovery/command` ← `PRESS` |
@@ -211,6 +216,10 @@ Requires ESPHome 2026.10 or newer.
 cp secrets.yaml.example secrets.yaml   # then put in a fresh OTA key: openssl rand -base64 32
 esphome run teslawbc.yaml              # first flash over micro-USB, later over the network
 ```
+
+Updating a device that already runs an earlier TeslaWBC build: keep its `secrets.yaml`. The OTA key (`api_encryption_key`) must stay the same, or the device refuses the network upload.
+
+All current settings (Target Current, Max Output Current, Fallback Target) go up to 16 A, the limit of this Wall Connector install and the car. The control logic also never steers above 16 A, whatever is stored. To change it, edit `wallbox_max_a` in `teslawbc.yaml`.
 
 Flash over USB only while the board is **not** powered by PoE, or use a USB isolator.
 

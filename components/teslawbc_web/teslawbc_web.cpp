@@ -316,6 +316,7 @@ void TeslaWbcWeb::handle_status_(AsyncWebServerRequest *request) {
     root["setup_done"] = this->cfg_.setup_done;
     root["mode"] = this->mode_->has_state() ? this->mode_->current_option().c_str() : "";
     root["target"] = this->target_->state;
+    root["wallbox_enabled"] = this->wallbox_enabled();
 #ifdef TESLAWBC_USE_MQTT
     root["mqtt_connected"] = mqtt::global_mqtt_client != nullptr && mqtt::global_mqtt_client->is_connected();
 #endif
@@ -468,6 +469,7 @@ void TeslaWbcWeb::handle_settings_post_(AsyncWebServerRequest *request) {
 void TeslaWbcWeb::handle_control_(AsyncWebServerRequest *request) {
   std::string mode;
   float target = NAN;
+  int wallbox = -1;  // -1 = not given, 0 = off, 1 = on
   std::string error;
   bool ok = json::parse_json(this->body_, [&](JsonObject root) -> bool {
     if (root["mode"].is<const char *>()) {
@@ -488,13 +490,28 @@ void TeslaWbcWeb::handle_control_(AsyncWebServerRequest *request) {
         return false;
       }
     }
+    if (!root["wallbox_enabled"].isNull()) {
+      if (!root["wallbox_enabled"].is<bool>()) {
+        error = "wallbox_enabled must be true or false";
+        return false;
+      }
+      if (this->wallbox_ == nullptr) {
+        error = "wallbox switch not configured";
+        return false;
+      }
+      wallbox = root["wallbox_enabled"].as<bool>() ? 1 : 0;
+    }
     return true;
   });
   if (!this->body_.empty() && (!ok || !error.empty())) {
     this->send_error_(request, 400, error.empty() ? "invalid JSON" : error.c_str());
     return;
   }
-  this->defer([this, mode, target]() {
+  this->defer([this, mode, target, wallbox]() {
+    if (wallbox == 1)
+      this->wallbox_->turn_on();
+    else if (wallbox == 0)
+      this->wallbox_->turn_off();
     if (!std::isnan(target)) {
       auto call = this->target_->make_call();
       call.set_value(target);
@@ -694,6 +711,10 @@ void TeslaWbcWeb::handle_recovery_(AsyncWebServerRequest *request) {
     return true;
   });
   if (action == "start") {
+    if (!this->wallbox_enabled()) {
+      this->send_error_(request, 409, "wallbox is switched off");
+      return;
+    }
     this->defer([this]() { this->start_recovery(); });
   } else if (action == "cancel") {
     this->defer([this]() { this->cancel_recovery(); });

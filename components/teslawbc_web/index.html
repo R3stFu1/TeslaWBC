@@ -39,8 +39,11 @@ table{border-collapse:collapse;width:100%}td{padding:6px 4px;border-bottom:1px s
   <div class="card"><h2>Control</h2>
     <div class="row" id="modes"></div>
     <label for="tgt">Target current (A)</label>
-    <div class="row"><input id="tgt" type="number" min="0" max="32" step="1" style="max-width:120px"><button class="b p" id="tgtset">Set</button></div>
+    <div class="row"><input id="tgt" type="number" min="0" max="16" step="1" style="max-width:120px"><button class="b p" id="tgtset">Set</button></div>
     <div class="msg" id="ctlmsg"></div>
+    <label>Wallbox power</label>
+    <div class="row" id="wbox"></div>
+    <p class="muted">Off cuts the Wall Connector's power through the contactor until you switch it on again, e.g. while the car is away.</p>
   </div>
   <div class="card"><h2>Health</h2><div class="row" id="health"></div></div>
   <div class="card"><h2>Live values</h2><div class="grid" id="live"></div></div>
@@ -97,7 +100,8 @@ function render(){
   $('#hdr').textContent=`${V('state')||'–'} · ${S.mode} · firmware ${S.firmware} · ${V('ip_address')||''}`;
   const m=$('#modes');m.replaceChildren(...['Bypass','Manual','Pause'].map(x=>el('button',{class:'b'+(S.mode==x?' sel':''),onclick:()=>control({mode:x})},x)));
   if(document.activeElement!==$('#tgt'))$('#tgt').value=S.target;
-  $('#health').replaceChildren(badge(V('meter_ok'),'Meter'),badge(V('charger_polling'),'Charger polling'),badge(V('fallback_active'),'Fallback',false),badge(V('control_lost'),'Control lost',false),badge(S.mqtt_connected,'MQTT'),badge(V('wc_reachable'),'Wall Connector API'));
+  $('#wbox').replaceChildren(...[['On',true],['Off',false]].map(([l,v])=>el('button',{class:'b'+(S.wallbox_enabled===v?' sel':''),onclick:()=>{if(!v&&!confirm("Cut the Wall Connector's power until you switch it on again?"))return;control({wallbox_enabled:v})}},l)));
+  $('#health').replaceChildren(badge(V('meter_ok'),'Meter'),badge(V('charger_polling'),'Charger polling'),badge(V('fallback_active')&&S.mode!=='Bypass','Fallback',false),badge(V('control_lost'),'Control lost',false),badge(S.mqtt_connected,'MQTT'),badge(V('wc_reachable'),'Wall Connector API'));
   const kv=(k,v)=>el('div',{class:'kv'},el('div',{class:'k'},k),el('div',{class:'v'},v));
   $('#live').replaceChildren(kv('State',V('state')||'–'),kv('Target in use',fmt(V('effective_target'),'A')),kv('Reported to charger',fmt(V('reported_current'),'A',2)),
     kv('Current L1',fmt(V('current_l1'),'A',2)),kv('Current L2',fmt(V('current_l2'),'A',2)),kv('Current L3',fmt(V('current_l3'),'A',2)),

@@ -44,6 +44,7 @@ class TeslaWbcWeb : public Component, public AsyncWebHandler {
   void set_mode(select::Select *s) { this->mode_ = s; }
   void set_target(number::Number *n) { this->target_ = n; }
   void set_heartbeat(button::Button *b) { this->heartbeat_ = b; }
+  void set_wallbox(switch_::Switch *s) { this->wallbox_ = s; }
   void add_setting(number::Number *n) { this->settings_.push_back(n); }
   void add_switch(switch_::Switch *s) { this->switches_.push_back(s); }
   void add_sensor(sensor::Sensor *s) { this->sensors_.push_back(s); }
@@ -63,6 +64,7 @@ class TeslaWbcWeb : public Component, public AsyncWebHandler {
   bool update_recovery(const teslawbc::RecoverySettings &rs, uint32_t now_ms, bool control_lost, bool *started);
   bool recovery_forces_bypass() const { return this->recovery_.forces_bypass(); }
   bool recovery_active() const { return this->recovery_.active(); }
+  bool wallbox_enabled() const { return this->wallbox_ == nullptr || this->wallbox_->state; }
   void start_recovery();
   void cancel_recovery();
 
@@ -109,6 +111,8 @@ class TeslaWbcWeb : public Component, public AsyncWebHandler {
   select::Select *mode_{nullptr};
   number::Number *target_{nullptr};
   button::Button *heartbeat_{nullptr};
+  // Wallbox Enabled: OFF holds the Wall Connector's power cut (optional)
+  switch_::Switch *wallbox_{nullptr};
   std::vector<number::Number *> settings_;
   std::vector<switch_::Switch *> switches_;
   std::vector<sensor::Sensor *> sensors_;
